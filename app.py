@@ -28,6 +28,13 @@ os.makedirs(JOBS, exist_ok=True)
 JOB_TTL = 60 * 60          # 1 hour
 MAX_FILES = 50
 
+# Static files: normally BASE/static, pan jo files repo root ma (static/ vagar)
+# hoy to e pan support karo, jethi deploy crash na thay.
+STATIC = os.path.join(BASE, "static")
+if not os.path.isdir(STATIC) and os.path.isfile(os.path.join(BASE, "index.html")):
+    STATIC = BASE
+os.makedirs(STATIC, exist_ok=True)
+
 app = FastAPI(title="Akshar OCR")
 
 
@@ -144,7 +151,13 @@ def download(job, fname):
 
 @app.get("/", response_class=HTMLResponse)
 def index():
-    with open(os.path.join(BASE, "static", "index.html"), encoding="utf-8") as f:
+    path = os.path.join(STATIC, "index.html")
+    if not os.path.isfile(path):
+        return HTMLResponse(
+            "<h2>Akshar OCR</h2><p>UI files (index.html, style.css, app.js) "
+            "nathi malya. Repo ma e files <code>static/</code> folder ma honi joiye. "
+            "API kaam kare chhe: <a href='/health'>/health</a></p>", status_code=200)
+    with open(path, encoding="utf-8") as f:
         return f.read()
 
 
@@ -153,4 +166,4 @@ def health():
     return {"ok": True, "langs": sorted(engine.installed_languages())}
 
 
-app.mount("/static", StaticFiles(directory=os.path.join(BASE, "static")), name="static")
+app.mount("/static", StaticFiles(directory=STATIC), name="static")
