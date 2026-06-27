@@ -1,0 +1,14 @@
+services:
+  akshar-ocr:
+    build: .
+    container_name: akshar-ocr
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    # ---- Coolify: domain UI ma set karo; aa labels manual Traefik mate chhe ----
+    # labels:
+    #   - traefik.enable=true
+    #   - traefik.http.routers.aksharocr.rule=Host(`ocr.divyajivan.com`)
+    #   - traefik.http.routers.aksharocr.entrypoints=websecure
+    #   - traefik.http.routers.aksharocr.tls.certresolver=letsencrypt
+    #   - traefik.http.services.aksharocr.loadbalancer.server.port=8000
