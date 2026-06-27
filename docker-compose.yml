@@ -1,14 +1,19 @@
 services:
   akshar-ocr:
     build: .
-    container_name: akshar-ocr
     restart: unless-stopped
-    ports:
-      - "8000:8000"
-    # ---- Coolify: domain UI ma set karo; aa labels manual Traefik mate chhe ----
-    # labels:
-    #   - traefik.enable=true
-    #   - traefik.http.routers.aksharocr.rule=Host(`ocr.divyajivan.com`)
-    #   - traefik.http.routers.aksharocr.entrypoints=websecure
-    #   - traefik.http.routers.aksharocr.tls.certresolver=letsencrypt
-    #   - traefik.http.services.aksharocr.loadbalancer.server.port=8000
+    # Host port publish NAHI karvanu (Coolify Traefik thi route kare).
+    # 8000 fakt internally expose karo.
+    expose:
+      - "8000"
+    # Coolify magic: aa env thi domain ne aa service na port 8000 par route kare.
+    # Domain Coolify UI ma set karo (e.g. ocr.divyajivan.com).
+    environment:
+      - SERVICE_FQDN_AKSHAROCR_8000
+
+# ---------------------------------------------------------------------------
+# Local testing (Coolify vagar) mate compose na vaapro - direct Docker vaapro:
+#   docker build -t akshar-ocr .
+#   docker run --rm -p 8000:8000 akshar-ocr
+#   -> http://localhost:8000
+# ---------------------------------------------------------------------------
