@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SMVS OCR — Indian-language documents to editable text</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Hind+Vadodara:wght@400;500;600;700&family=Sora:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="icon" type="image/png" href="/static/logo-white.png" />
+<link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+
+<header class="hero">
+  <div class="hero-glyphs" aria-hidden="true">
+    <span style="top:18%;left:7%;font-size:70px;transform:rotate(-8deg)">અ</span>
+    <span style="top:30%;left:90%;font-size:90px;transform:rotate(10deg)">ஆ</span>
+    <span style="top:55%;left:80%;font-size:64px;transform:rotate(-6deg)">ਪ</span>
+  </div>
+  <div class="hero-bar">
+    <img class="brand-logo" src="/static/logo.png" alt="SMVS logo" />
+    <div class="hero-titles">
+      <div class="brand-name">SMVS OCR</div>
+      <div class="hero-tag">Indian-Language OCR <span class="hl">&rarr; Editable Text</span>
+        <span class="sep">·</span> Scanned PDFs, Photos &amp; Documents To Clean Text &amp; Word</div>
+    </div>
+  </div>
+</header>
+
+<main class="layout">
+
+  <div class="card">
+    <div class="card-head"><span class="step">1</span><h2>Add Files</h2></div>
+    <div id="drop" class="dropzone" tabindex="0">
+      <div class="drop-icon">⤓</div>
+      <p class="drop-title">Drop Files Here, Or <span class="link">Browse</span></p>
+      <p class="drop-sub">PDF · PNG · JPG · TIFF · Word · ODT · RTF · Text</p>
+      <input id="fileInput" type="file" multiple hidden />
+    </div>
+    <div class="bulk" id="bulkBar" hidden>
+      <span class="bulk-lbl">Set Language For All File</span>
+      <div id="bulkLang"></div>
+      <button id="applyAll" class="btn-ghost small">Apply To All</button>
+    </div>
+    <p class="filehelp" id="fileHelp" hidden>You Can Select Language And Pages For Every File.</p>
+    <ul id="fileList" class="filelist"></ul>
+  </div>
+
+  <div class="col-mid">
+    <div class="card">
+      <div class="card-head"><span class="step">2</span><h2>Settings</h2></div>
+      <div class="settings">
+        <div class="grid2">
+          <label class="field"><span>OCR Detail <em>(DPI)</em></span>
+            <input id="dpi" type="number" min="150" max="600" step="50" value="300" /></label>
+          <label class="field"><span>Word Font</span>
+            <input id="font" type="text" value="Hind Vadodara" /></label>
+        </div>
+        <label class="toggle">
+          <input id="forceOcr" type="checkbox" /><span class="track"></span>
+          <span class="toggle-label">Force OCR On Every Page</span>
+        </label>
+        <div class="field"><span>Output Format</span>
+          <div class="pills">
+            <label class="pill"><input type="checkbox" id="fmtTxt" checked /><span>Text&nbsp;.txt</span></label>
+            <label class="pill"><input type="checkbox" id="fmtDocx" checked /><span>Word&nbsp;.docx</span></label>
+          </div>
+        </div>
+        <div class="field"><span>Layout</span>
+          <div class="pills">
+            <label class="pill"><input type="radio" name="layout" value="pagewise" checked /><span>Page-Wise</span></label>
+            <label class="pill"><input type="radio" name="layout" value="continuous" /><span>Continuous</span></label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><span class="step">3</span><h2>Action</h2></div>
+      <div class="action-row">
+        <button id="convertBtn" class="btn-primary" disabled>
+          <span class="spinner" aria-hidden="true"></span><span class="btn-label">Convert</span>
+        </button>
+        <button id="clearBtn" class="btn-ghost">Clear All</button>
+      </div>
+    </div>
+  </div>
+
+  <section class="results card col-output" id="resultsCard">
+    <div class="card-head">
+      <span class="step">4</span><h2>Output</h2>
+      <div class="result-actions">
+        <button id="viewBtn" class="btn-ghost" disabled>View</button>
+        <button id="copyBtn" class="btn-ghost" disabled>Copy</button>
+        <a id="zipBtn" class="btn-ghost" hidden>Download .zip</a>
+      </div>
+    </div>
+    <div id="fileTabs" class="file-tabs"></div>
+    <div id="uploadProg" class="upload-prog" hidden></div>
+    <div id="downloads" class="downloads"></div>
+    <pre id="log" class="log" hidden></pre>
+    <div class="preview-wrap">
+      <div class="preview-empty" id="previewEmpty">
+        <p>Converted Text Appears Here.<br>Each File Is Saved As <b>.txt</b> And <b>.docx</b>.</p>
+      </div>
+      <textarea id="preview" class="preview" spellcheck="false"></textarea>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">Runs entirely on your own server. Uploaded files are processed temporarily and are permanently removed when you click <b>Clear All</b> or close this tab, and automatically after 1 hour. No data is kept after your session.</footer>
+
+<!-- View popup -->
+<div id="viewModal" class="modal" hidden>
+  <div class="modal-box">
+    <div class="modal-head">
+      <h3 id="modalTitle">Output</h3>
+      <button id="modalClose" class="modal-x" title="Close">✕</button>
+    </div>
+    <div class="modal-body">
+      <aside id="modalList" class="modal-list"></aside>
+      <div class="modal-main">
+        <div class="modal-dl" id="modalDl"></div>
+        <textarea id="modalText" class="modal-text" spellcheck="false"></textarea>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toasts" class="toasts" aria-live="polite"></div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,7 @@
+# ===== SMVS OCR config template =====
+# Aa file ne "config.yaml" naam thi copy karo ane password badlo:
+#   copy config.example.yaml config.yaml   (Windows)
+#   cp   config.example.yaml config.yaml   (Linux)
+admin_password: "Password-=123"
+output_retention_hours: 24
+max_files: 50

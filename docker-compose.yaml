@@ -1,0 +1,23 @@
+services:
+  smvs-ocr:
+    build:
+      context: .
+      args:
+        # 1 = .doc/.odt/.rtf support (LibreOffice, motu image ~1.5GB)
+        # 0 = lean image (fakt PDF/images/docx)
+        WITH_LIBREOFFICE: "1"
+    environment:
+      # Admin password: config.yaml na hoy to aa env vapraay (Coolify mate saru)
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
+    # Coolify: domain set karya pachhi aa FQDN apoaap proxy thashe (port 8000)
+    expose:
+      - "8000"
+    volumes:
+      # Converted output 24h rahe — container restart par pan jalvai rahe
+      - smvs_jobs:/app/jobs
+      # YAML password file mount karvu hoy to aa uncomment karo (file hova joiye):
+      # - ./config.yaml:/app/config.yaml:ro
+    restart: unless-stopped
+
+volumes:
+  smvs_jobs:

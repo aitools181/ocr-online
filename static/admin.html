@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>SMVS OCR — Admin</title>
+<link href="https://fonts.googleapis.com/css2?family=Hind+Vadodara:wght@400;500;600;700&family=Sora:wght@600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+<link rel="icon" type="image/png" href="/static/logo-white.png" />
+<link rel="stylesheet" href="/static/style.css" />
+<style>
+  .admin-wrap{max-width:1000px;margin:24px auto;padding:0 18px}
+  .admin-head{display:flex;align-items:center;gap:14px;margin-bottom:18px}
+  .admin-head img{width:46px;height:46px;border-radius:11px;background:#fff;padding:5px;object-fit:contain;box-shadow:0 6px 18px rgba(0,0,0,.18)}
+  .admin-head h1{font-family:"Sora",sans-serif;font-size:24px;margin:0}
+  .admin-head .sub{color:var(--muted);font-size:13px}
+  .login{max-width:380px}
+  .login .field{margin-bottom:12px}
+  .login input{width:100%;padding:11px 13px;border:1px solid var(--line);border-radius:9px;font:inherit;font-size:14px}
+  .bar-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+  .bar-actions .spacer{flex:1}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:10px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-size:12px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.03em}
+  td .jid{font-family:ui-monospace,monospace;font-size:11.5px;color:var(--muted)}
+  td .fn{display:block}
+  .pill-active{display:inline-block;background:#fdecc8;color:#9a6a12;border-radius:6px;padding:1px 7px;font-size:11px;margin-left:6px}
+  .danger{background:#c0392b;color:#fff;border:none;border-radius:9px;padding:9px 16px;font:inherit;font-weight:600;cursor:pointer}
+  .danger:disabled{opacity:.45;cursor:not-allowed}
+  .empty{padding:30px;text-align:center;color:var(--muted)}
+  .muted{color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="admin-wrap">
+  <div class="admin-head">
+    <img src="/static/logo.png" alt="SMVS" />
+    <div><h1>SMVS OCR — Admin</h1><div class="sub">Server par store thayela output jobs manage karo</div></div>
+  </div>
+
+  <div id="loginCard" class="card login">
+    <div class="card-head"><h2>Login</h2></div>
+    <div class="field"><input id="pw" type="password" placeholder="Admin password" autofocus /></div>
+    <button id="loginBtn" class="btn-primary" style="width:100%;justify-content:center">Open</button>
+    <p id="loginErr" class="muted" style="margin-top:10px"></p>
+  </div>
+
+  <div id="listCard" class="card" hidden>
+    <div class="bar-actions">
+      <label class="muted"><input type="checkbox" id="selAll" /> Select all</label>
+      <span id="meta" class="muted"></span>
+      <span class="spacer"></span>
+      <button id="refreshBtn" class="btn-ghost">Refresh</button>
+      <button id="delBtn" class="danger" disabled>Delete Selected</button>
+    </div>
+    <div id="tableWrap"></div>
+  </div>
+</div>
+<div id="toasts" class="toasts" aria-live="polite"></div>
+<script src="/static/admin.js"></script>
+</body>
+</html>

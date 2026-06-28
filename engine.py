@@ -10,6 +10,7 @@ import io
 import os
 import shutil
 import subprocess
+import sys
 
 import fitz  # PyMuPDF
 import pytesseract
@@ -17,6 +18,25 @@ from pytesseract import Output
 from PIL import Image, ImageSequence
 
 DEFAULT_DOCX_FONT = "Hind Vadodara"
+
+
+def _auto_tesseract():
+    """Windows par PATH ma tesseract na hoy to default install path try karo.
+    Docker/Linux par (jya tesseract PATH ma chhe) aano koi asar nathi."""
+    if shutil.which("tesseract"):
+        return
+    if sys.platform.startswith("win"):
+        for p in (r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+                  r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"):
+            if os.path.isfile(p):
+                pytesseract.pytesseract.tesseract_cmd = p
+                td = os.path.join(os.path.dirname(p), "tessdata")
+                if os.path.isdir(td):
+                    os.environ.setdefault("TESSDATA_PREFIX", td)
+                return
+
+
+_auto_tesseract()
 
 # (display, code, sample glyph) — glyph UI chips mate
 LANGUAGES = [
@@ -80,6 +100,31 @@ def _run(text, bold=False, italic=False, size=None):
 
 def _break():
     return {"text": "\n", "bold": False, "italic": False, "size": None, "brk": True}
+
+
+def _paragraphize(paras):
+    """Ek paragraph ni andar na line-breaks ne space-join ma badle (paragraph-based output).
+    Line-end hyphen hoy to word jodi de. Bold/italic runs jalvai rahe."""
+    out = []
+    for para in paras:
+        merged = []
+        for run in para:
+            if run.get("brk"):
+                if merged:
+                    prev = merged[-1]
+                    pt = prev.get("text", "")
+                    if len(pt) >= 2 and pt.endswith("-") and pt[-2].isalpha():
+                        prev["text"] = pt[:-1]              # hyphenated word jodo
+                    elif pt and not pt.endswith(" "):
+                        merged.append(_run(" "))            # line break -> space
+                continue
+            merged.append(run)
+        # trailing space cleanup
+        while merged and merged[-1].get("text", "") == " ":
+            merged.pop()
+        if merged:
+            out.append(merged)
+    return out
 
 
 def looks_like_real_text(text):
@@ -218,14 +263,25 @@ def parse_range(spec, maxp):
     return sorted(pages)
 
 
-def build_document(path, lang, dpi, force_ocr, selected_pages, progress=None):
-    """Return list[(label, paras)]. selected_pages: 1-based list or None=all."""
+def _counts_line(paras, lang_codes):
+    c = count_scripts([("", paras)], lang_codes)
+    return " ".join(f"{k}={v}" for k, v in c.items())
+
+
+def build_document(path, lang, dpi, force_ocr, selected_pages, progress=None, log=None):
+    """Return list[(label, paras)]. selected_pages: 1-based list or None=all.
+    log(msg): optional per-page live message callback."""
     ext = os.path.splitext(path)[1].lower()
+    lang_codes = lang.split("+")
     pages = []
 
     def tick():
         if progress:
             progress()
+
+    def emit(label, mode, paras):
+        if log:
+            log(f"{label}  [{mode}]  {_counts_line(paras, lang_codes)}")
 
     if ext in PDF_EXTS:
         doc = fitz.open(path)
@@ -239,9 +295,13 @@ def build_document(path, lang, dpi, force_ocr, selected_pages, progress=None):
             raw = page.get_text("text")
             if force_ocr or not looks_like_real_text(raw):
                 paras = ocr_image_structured(render_page_image(page, dpi), lang)
+                mode = "OCR"
             else:
                 paras = extract_pdf_text_page(page)
+                mode = "text"
+            paras = _paragraphize(paras)
             pages.append((f"Page {pno}", paras))
+            emit(f"Page {pno}", mode, paras)
             tick()
         doc.close()
 
@@ -253,25 +313,32 @@ def build_document(path, lang, dpi, force_ocr, selected_pages, progress=None):
         todo = selected_pages or list(range(1, len(frames) + 1))
         for pno in todo:
             if 1 <= pno <= len(frames):
-                pages.append((f"Page {pno}", ocr_image_structured(frames[pno - 1], lang)))
+                paras = _paragraphize(ocr_image_structured(frames[pno - 1], lang))
+                pages.append((f"Page {pno}", paras))
+                emit(f"Page {pno}", "OCR", paras)
                 tick()
 
     elif ext in DOCX_EXTS:
-        pages = [("Document", extract_docx_file(path))]; tick()
+        paras = extract_docx_file(path)
+        pages = [("Document", paras)]; emit("Document", "read", paras); tick()
 
     elif ext in OFFICE_EXTS:
         conv = libreoffice_to_docx(path, os.path.join(os.path.dirname(path), "_conv"))
-        pages = [("Document", extract_docx_file(conv))]; tick()
+        paras = extract_docx_file(conv)
+        pages = [("Document", paras)]; emit("Document", "read", paras); tick()
 
     elif ext in TEXT_EXTS:
-        pages = [("Document", extract_text_file(path))]; tick()
+        paras = extract_text_file(path)
+        pages = [("Document", paras)]; emit("Document", "read", paras); tick()
 
     else:
         try:
             with Image.open(path) as im:
-                pages = [("Page 1", ocr_image_structured(im.convert("L"), lang))]
+                paras = ocr_image_structured(im.convert("L"), lang)
+            pages = [("Page 1", paras)]; emit("Page 1", "OCR", paras)
         except Exception:
-            pages = [("Document", extract_text_file(path))]
+            paras = extract_text_file(path)
+            pages = [("Document", paras)]; emit("Document", "read", paras)
         tick()
 
     return pages
@@ -286,7 +353,7 @@ def render_text(items, pagewise):
                 out.append("")
             out.append(f"===== {label} =====")
         para_texts = ["".join(r["text"] for r in para) for para in page]
-        out.append("\n".join(para_texts))
+        out.append("\n\n".join(para_texts))
     return "\n".join(out).strip() + "\n"
 
 
