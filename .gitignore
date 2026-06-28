@@ -1,12 +1,19 @@
+# Python
 __pycache__/
 *.pyc
-*.pyo
-jobs/
 .venv/
 venv/
 python/
 .uvcache/
 .env
 .DS_Store
-.push_to_github
-.run_local
+
+# Runtime data (uploads/outputs) — never push
+jobs/
+
+# Local secret config — never push (admin password ahiya hoy chhe)
+config.yaml
+
+# Local helper scripts — GitHub ma push karva nathi
+push_to_github.bat
+run_local.bat
