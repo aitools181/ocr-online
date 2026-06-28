@@ -8,3 +8,4 @@ python/
 .uvcache/
 .env
 .DS_Store
+push_to_github
