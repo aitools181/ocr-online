@@ -9,6 +9,8 @@ services:
     environment:
       # Admin password: config.yaml na hoy to aa env vapraay (Coolify mate saru)
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
+      # Parallel OCR workers (default = CPU cores, max 6). Tune mate uncomment:
+      # - OCR_WORKERS=4
     # Coolify: domain set karya pachhi aa FQDN apoaap proxy thashe (port 8000)
     expose:
       - "8000"

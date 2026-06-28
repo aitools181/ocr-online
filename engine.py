@@ -94,6 +94,11 @@ def find_soffice():
 
 
 # ---------------------------------------------------------------- model
+# Parallel OCR: page-level threads (tesseract single-thread per call -> clean core use)
+os.environ.setdefault("OMP_THREAD_LIMIT", "1")
+MAX_OCR_WORKERS = int(os.environ.get("OCR_WORKERS", "6"))
+
+
 def _run(text, bold=False, italic=False, size=None):
     return {"text": text, "bold": bold, "italic": italic, "size": size}
 
@@ -286,24 +291,44 @@ def build_document(path, lang, dpi, force_ocr, selected_pages, progress=None, lo
     if ext in PDF_EXTS:
         doc = fitz.open(path)
         total = doc.page_count
-        todo = selected_pages or list(range(1, total + 1))
-        for pno in todo:
-            i = pno - 1
-            if i < 0 or i >= total:
-                continue
-            page = doc[i]
-            raw = page.get_text("text")
-            if force_ocr or not looks_like_real_text(raw):
-                paras = ocr_image_structured(render_page_image(page, dpi), lang)
-                mode = "OCR"
-            else:
-                paras = extract_pdf_text_page(page)
-                mode = "text"
-            paras = _paragraphize(paras)
-            pages.append((f"Page {pno}", paras))
-            emit(f"Page {pno}", mode, paras)
-            tick()
         doc.close()
+        todo = [p for p in (selected_pages or list(range(1, total + 1))) if 1 <= p <= total]
+
+        def process_page(pno):
+            # Per-thread fitz handle (thread-safe + memory-bounded)
+            d = fitz.open(path)
+            try:
+                page = d[pno - 1]
+                raw = page.get_text("text")
+                if force_ocr or not looks_like_real_text(raw):
+                    paras = ocr_image_structured(render_page_image(page, dpi), lang)
+                    mode = "OCR"
+                else:
+                    paras = extract_pdf_text_page(page)
+                    mode = "text"
+            finally:
+                d.close()
+            return pno, _paragraphize(paras), mode
+
+        # Multiple core hoy to pages PARALLEL OCR (Tesseract subprocess -> GIL release)
+        workers = min(len(todo), (os.cpu_count() or 1), MAX_OCR_WORKERS)
+        results = {}
+        if workers > 1 and len(todo) > 1:
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+            with ThreadPoolExecutor(max_workers=workers) as ex:
+                futs = {ex.submit(process_page, p): p for p in todo}
+                for fut in as_completed(futs):
+                    pno, paras, mode = fut.result()
+                    results[pno] = paras
+                    emit(f"Page {pno}", mode, paras)   # complete thay tem log (order alag hoy shake)
+                    tick()
+            pages = [(f"Page {p}", results[p]) for p in todo if p in results]
+        else:
+            for pno in todo:
+                pno, paras, mode = process_page(pno)
+                pages.append((f"Page {pno}", paras))
+                emit(f"Page {pno}", mode, paras)
+                tick()
 
     elif ext in IMAGE_EXTS:
         frames = []
