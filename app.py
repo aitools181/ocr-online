@@ -105,8 +105,11 @@ async def convert(files: list[UploadFile] = File(...), options: str = Form(...))
     want_txt = "txt" in formats
     want_docx = "docx" in formats
     font = opts.get("font") or engine.DEFAULT_DOCX_FONT
+    style = "text" if opts.get("convert_style") == "text" else "full"
+    psm = 6 if str(opts.get("psm")) == "6" else 3
+    default_pdf = bool(opts.get("searchable_pdf", False))   # fallback if per-file absent
     default_langs = opts.get("langs") or ["eng"]
-    items_opt = opts.get("items") or []      # per-file: [{langs:[], pages:""}]
+    items_opt = opts.get("items") or []      # per-file: [{langs:[], pages:"", searchable_pdf:bool}]
 
     job = uuid.uuid4().hex
     job_dir = os.path.join(JOBS, job)
@@ -130,7 +133,24 @@ async def convert(files: list[UploadFile] = File(...), options: str = Form(...))
         while stem in used:                 # duplicate output names avoid
             stem += "_"
         used.add(stem)
-        saved.append((uf.filename, stem, src, langs, pages))
+        # Auto language: PDF nu script detect karine languages nakki karo
+        if [str(x).lower() for x in langs] == ["auto"]:
+            try:
+                langs = engine.detect_languages(src)
+            except Exception:
+                langs = ["guj", "eng"]
+        # selected pages + total (queue/progress bars mate)
+        sel = None
+        total = 0
+        try:
+            pc = engine.page_count(src)
+            if pages:
+                sel = engine.parse_range(pages, pc) or None
+            total = len(sel) if sel else pc
+        except Exception:
+            total = 0
+        wpdf = bool(it.get("searchable_pdf", default_pdf))   # per-file searchable PDF
+        saved.append((uf.filename, stem, src, langs, sel, total, wpdf))
 
     def gen():
         import queue as _q
@@ -141,16 +161,28 @@ async def convert(files: list[UploadFile] = File(...), options: str = Form(...))
         def worker():
             ACTIVE_JOBS.add(job)
             q.put({"type": "start", "job": job})
+            # Plan: badhi files na page totals (queue + progress bars mate)
+            q.put({"type": "plan",
+                   "files": [{"name": o, "pages_total": t * (2 if wp else 1)}
+                             for (o, _s, _src, _l, _sel, t, wp) in saved]})
             try:
-                for (orig, stem, src, langs, pages) in saved:
+                for (orig, stem, src, langs, sel, total, want_pdf) in saved:
                     lang_str = "+".join(langs) if langs else "eng"
-                    q.put({"type": "file_start", "name": orig, "langs": langs})
+                    units = total * (2 if want_pdf else 1)   # structured + pdf pass
+                    q.put({"type": "file_start", "name": orig, "langs": langs,
+                           "pages_total": units})
+                    t0 = time.time()
                     try:
-                        sel = None
-                        if pages:
-                            sel = engine.parse_range(pages, engine.page_count(src)) or None
+                        done = [0]
+
+                        def prog(_n=orig, _t=units, _d=done):
+                            _d[0] += 1
+                            q.put({"type": "progress", "name": _n,
+                                   "done": _d[0], "total": _t})
+
                         items = engine.build_document(
-                            src, lang_str, dpi, force_ocr, sel,
+                            src, lang_str, dpi, force_ocr, sel, style=style, psm=psm,
+                            progress=prog,
                             log=lambda m, _n=orig: q.put({"type": "log", "name": _n, "msg": m}))
                         text = engine.render_text(items, pagewise)
                         counts = engine.count_scripts(items, langs)
@@ -166,11 +198,20 @@ async def convert(files: list[UploadFile] = File(...), options: str = Form(...))
                             engine.write_docx(items, dp, font, pagewise)
                             downloads.append({"label": "Word", "file": stem + ".docx"})
                             produced.append(dp)
+                        if want_pdf:
+                            pp = os.path.join(out_dir, stem + "_searchable.pdf")
+                            engine.build_searchable_pdf(
+                                src, lang_str, dpi, sel, pp, progress=prog,
+                                log=lambda m, _n=orig: q.put({"type": "log", "name": _n, "msg": m}))
+                            downloads.append({"label": "PDF", "file": stem + "_searchable.pdf"})
+                            produced.append(pp)
                         q.put({"type": "file_done", "name": orig, "text": text,
-                               "counts": counts, "downloads": downloads, "error": None})
+                               "counts": counts, "downloads": downloads, "error": None,
+                               "seconds": round(time.time() - t0, 1)})
                     except Exception as e:
                         q.put({"type": "file_done", "name": orig, "text": "", "counts": {},
-                               "downloads": [], "error": str(e)})
+                               "downloads": [], "error": str(e),
+                               "seconds": round(time.time() - t0, 1)})
 
                 zip_name = None
                 if len(produced) > 1:

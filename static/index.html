@@ -61,11 +61,25 @@
           <input id="forceOcr" type="checkbox" /><span class="track"></span>
           <span class="toggle-label">Force OCR On Every Page</span>
         </label>
+        <div class="field"><span>OCR Mode <em>(PSM)</em></span>
+          <div class="pills">
+            <label class="pill"><input type="radio" name="psm" value="3" checked /><span>Auto Layout</span></label>
+            <label class="pill"><input type="radio" name="psm" value="6" /><span>Single Block</span></label>
+          </div>
+          <small class="hint" id="psmHint">Auto Layout: Best For Normal Pages. Single Block: Dense/Decorative Pages Where Lines Get Missed.</small>
+        </div>
         <div class="field"><span>Output Format</span>
           <div class="pills">
             <label class="pill"><input type="checkbox" id="fmtTxt" checked /><span>Text&nbsp;.txt</span></label>
             <label class="pill"><input type="checkbox" id="fmtDocx" checked /><span>Word&nbsp;.docx</span></label>
           </div>
+        </div>
+        <div class="field"><span>Convert Style</span>
+          <div class="pills">
+            <label class="pill"><input type="radio" name="cstyle" value="full" checked /><span>With Header-Footer</span></label>
+            <label class="pill"><input type="radio" name="cstyle" value="text" /><span>Only Text</span></label>
+          </div>
+          <small class="hint" id="cstyleHint">Keeps Headers &amp; Footers, Skips Design/Symbol Garbage.</small>
         </div>
         <div class="field"><span>Layout</span>
           <div class="pills">

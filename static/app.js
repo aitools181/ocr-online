@@ -32,26 +32,36 @@ function toast(msg,type="ok"){
 }
 function setStatus(t,c=""){ toast(t, c==="err"?"err":(c==="busy"?"info":"ok")); }
 function logLine(t){ logEl.hidden=false; logEl.textContent+=t+"\n"; logEl.scrollTop=logEl.scrollHeight; }
-function langSummary(set){ return set.size?LANGS.filter(l=>set.has(l.code)).map(l=>cap(l.code)).join(", "):"none"; }
+function langSummary(set){ if(set.has("auto")) return "Auto-Detect"; return set.size?LANGS.filter(l=>set.has(l.code)).map(l=>cap(l.code)).join(", "):"none"; }
 function pageSummary(e){ return e.pagesMode==="all"?"All Pages":(e.pages.size?`${e.pages.size} Pages`:"Specific"); }
 function fmtSize(b){ return b<1048576?(b/1024).toFixed(0)+" KB":(b/1048576).toFixed(1)+" MB"; }
 function closeAllDropdowns(except){ document.querySelectorAll(".dd.open").forEach(d=>{ if(d!==except) d.classList.remove("open"); }); }
 document.addEventListener("click", ()=>closeAllDropdowns(null));
 
-// reusable language multiselect dropdown
+// reusable language multiselect dropdown (+ Auto-Detect)
 function makeLangDropdown(set, onChange){
   const dd=document.createElement("div"); dd.className="dd";
   const btn=document.createElement("button"); btn.className="dd-btn"; btn.type="button";
   btn.innerHTML=`<span class="dd-lbl">${langSummary(set)}</span> <span class="caret">▾</span>`;
   const pan=document.createElement("div"); pan.className="dd-panel";
+  const cbs=[];   // normal language checkboxes
+  const sync=()=>{ btn.querySelector(".dd-lbl").textContent=langSummary(set);
+    cbs.forEach(({code,cb})=>cb.checked=set.has(code)); onChange&&onChange(); };
+  // Auto-Detect row (top)
+  const arow=document.createElement("label"); arow.className="dd-check dd-auto";
+  const acb=document.createElement("input"); acb.type="checkbox"; acb.checked=set.has("auto");
+  acb.onchange=()=>{ if(acb.checked){ set.clear(); set.add("auto"); } else { set.delete("auto"); } sync(); };
+  arow.appendChild(acb);
+  arow.insertAdjacentHTML("beforeend",`<span class="g">✨</span><span>Auto-Detect Language</span>`);
+  pan.appendChild(arow);
   LANGS.forEach(l=>{
     const row=document.createElement("label"); row.className="dd-check";
     const cb=document.createElement("input"); cb.type="checkbox"; cb.checked=set.has(l.code);
-    cb.onchange=()=>{ cb.checked?set.add(l.code):set.delete(l.code);
-      btn.querySelector(".dd-lbl").textContent=langSummary(set); onChange&&onChange(); };
+    cb.onchange=()=>{ set.delete("auto"); cb.checked?set.add(l.code):set.delete(l.code);
+      acb.checked=false; sync(); };
     row.appendChild(cb);
     row.insertAdjacentHTML("beforeend",`<span class="g">${l.glyph}</span><span>${l.name}</span>`);
-    pan.appendChild(row);
+    pan.appendChild(row); cbs.push({code:l.code,cb});
   });
   btn.onclick=(ev)=>{ ev.stopPropagation(); const o=dd.classList.contains("open"); closeAllDropdowns(); if(!o) dd.classList.add("open"); };
   pan.onclick=(ev)=>ev.stopPropagation();
@@ -67,14 +77,14 @@ async function loadLanguages(){
   DEFAULTS.forEach(c=>bulkLangs.add(c));
   bulkLangEl.appendChild(makeLangDropdown(bulkLangs,null));
 }
-applyAll.onclick=()=>{ files.forEach(f=>f.langs=new Set(bulkLangs)); renderFiles(); toast("Language applied to all files"); };
+applyAll.onclick=()=>{ files.forEach(f=>{ f.langs=new Set(bulkLangs); }); renderFiles(); toast("Language applied to all files"); };
 
 // ---------- files ----------
 function addFiles(list){
   let added=0;
   for(const f of list){
     if(!files.some(x=>x.file.name===f.name && x.file.size===f.size)){
-      files.push({file:f, langs:new Set(DEFAULTS), pagesMode:"all", pages:new Set(), count:null}); added++;
+      files.push({file:f, langs:new Set(DEFAULTS), pagesMode:"all", pages:new Set(), count:null, searchPdf:false}); added++;
     }
   }
   renderFiles();
@@ -177,9 +187,15 @@ function renderFiles(){
     ppan.onclick=(ev)=>ev.stopPropagation();
     pdd.append(pbtn,ppan);
 
+    const ptog=document.createElement("button"); ptog.type="button";
+    ptog.className="pdf-tog"+(e.searchPdf?" on":""); ptog.textContent="PDF";
+    ptog.title="Make Searchable PDF for this file";
+    ptog.onclick=()=>{ e.searchPdf=!e.searchPdf; ptog.classList.toggle("on",e.searchPdf);
+      toast(e.searchPdf?`Searchable PDF ON · ${e.file.name}`:"Searchable PDF OFF"); };
+
     const rm=document.createElement("button"); rm.className="rm"; rm.textContent="✕"; rm.title="Remove";
     rm.onclick=()=>{ files.splice(i,1); renderFiles(); toast("File removed"); };
-    li.append(col,ldd,pdd,rm); fileListEl.appendChild(li);
+    li.append(col,ldd,pdd,ptog,rm); fileListEl.appendChild(li);
   });
   refresh();
 }
@@ -193,7 +209,7 @@ drop.onkeydown=(e)=>{ if(e.key==="Enter"||e.key===" ") fileInput.click(); };
 drop.addEventListener("drop",e=>{ if(e.dataTransfer?.files) addFiles(e.dataTransfer.files); });
 
 // ---------- output rendering (per-file) ----------
-function dlLinks(r){ return r.downloads.map(d=>`<a href="/api/download/${JOB}/${encodeURIComponent(d.file)}" download>${d.label}</a>`).join(""); }
+function dlLinks(r){ return r.downloads.map(d=>`<a class="dlbtn" href="/api/download/${JOB}/${encodeURIComponent(d.file)}" download><span class="dlic">⤓</span>${d.label}</a>`).join(""); }
 function renderResults(){
   const has=results.length>0;
   previewEmpty.style.display=has?"none":"flex";
@@ -284,7 +300,64 @@ function updateUploadBars(loaded,total){
     setBar("up"+i,pct); acc+=s; });
 }
 function uploadBarsDone(){ setBar("uptotal",100); files.forEach((f,i)=>setBar("up"+i,100));
-  const t=uploadProg.querySelector(".up-title"); if(t) t.textContent="Uploaded · Processing…"; }
+  const t=uploadProg.querySelector(".up-title"); if(t) t.textContent="Uploaded · Starting…"; }
+
+// ---------- OCR Mode (PSM) hint ----------
+document.querySelectorAll("input[name=psm]").forEach(r=>r.addEventListener("change",()=>{
+  const h=$("#psmHint"); if(!h) return;
+  h.textContent = document.querySelector("input[name=psm]:checked").value==="6"
+    ? "Single Block: Reads Dense/Decorative Pages Fully (Less Paragraph Structure)."
+    : "Auto Layout: Best For Normal Pages.";
+}));
+
+// ---------- Convert Style hint ----------
+document.querySelectorAll("input[name=cstyle]").forEach(r=>r.addEventListener("change",()=>{
+  const h=$("#cstyleHint"); if(!h) return;
+  h.textContent = document.querySelector("input[name=cstyle]:checked").value==="text"
+    ? "Drops Headers, Footers, Page Numbers & Design — Only Clean Text."
+    : "Keeps Headers & Footers, Skips Design/Symbol Garbage.";
+}));
+
+// ---------- conversion progress bars (per-file + total) ----------
+let convFiles=[], convActive=-1, convStart=0, pagesDoneAll=0, pagesTotalAll=0;
+function fmtSec(s){ s=Math.max(0,Math.round(s)); if(s<60) return s+"s"; const m=Math.floor(s/60); return m+"m "+(s%60)+"s"; }
+function buildConvBars(plan){
+  convFiles=plan.map(p=>({name:p.name, total:p.pages_total||0, done:0, state:"queue", sec:null}));
+  convActive=-1; convStart=performance.now(); pagesDoneAll=0;
+  pagesTotalAll=convFiles.reduce((a,f)=>a+f.total,0);
+  uploadProg.hidden=false;
+  let html='<div class="up-title">Converting…</div>';
+  html+=`<div class="up-row"><span class="up-name">Total</span><div class="up-bar"><i id="cvtotal"></i></div><span class="up-pct" id="cvtotalp">0%</span></div>`;
+  convFiles.forEach((f,i)=>{ html+=`<div class="up-row"><span class="up-name" title="${esc(f.name)}">${esc(f.name)}</span><div class="up-bar"><i id="cv${i}"></i></div><span class="up-pct cv-stat" id="cv${i}p">queue</span></div>`; });
+  uploadProg.innerHTML=html;
+}
+function avgPageMs(){ return pagesDoneAll>0 ? (performance.now()-convStart)/pagesDoneAll : 0; }
+function refreshConvRows(){
+  const avg=avgPageMs();
+  convFiles.forEach((f,i)=>{
+    const bar=document.getElementById("cv"+i), st=document.getElementById("cv"+i+"p");
+    if(!bar||!st) return;
+    if(f.state==="done"){ bar.style.width="100%"; st.textContent=f.sec!=null?("✓ "+fmtSec(f.sec)):"✓"; st.className="up-pct cv-stat done"; }
+    else if(f.state==="active"){ const pct=f.total?Math.min(99,f.done/f.total*100):5;
+      bar.style.width=pct+"%"; st.textContent=f.total?`${f.done}/${f.total}`:"…"; st.className="up-pct cv-stat"; }
+    else { // queued
+      bar.style.width="0%";
+      let ahead=0; for(let k=0;k<i;k++){ if(convFiles[k].state!=="done") ahead+=Math.max(0,convFiles[k].total-convFiles[k].done); }
+      const eta=avg>0&&ahead>0?` · ~${fmtSec(ahead*avg/1000)}`:"";
+      st.textContent="in queue"+eta; st.className="up-pct cv-stat queue";
+    }
+  });
+  const tb=document.getElementById("cvtotal"), tp=document.getElementById("cvtotalp");
+  if(tb&&tp){ const pct=pagesTotalAll?Math.min(100,pagesDoneAll/pagesTotalAll*100):0;
+    tb.style.width=pct+"%"; tp.textContent=Math.round(pct)+"%"; }
+}
+function convFileStart(name){ const i=convFiles.findIndex(f=>f.state==="queue");
+  if(i>=0){ convActive=i; convFiles[i].state="active"; } refreshConvRows(); }
+function convProgress(done,total){ if(convActive<0) return;
+  convFiles[convActive].done=done; if(total) convFiles[convActive].total=total;
+  pagesDoneAll++; refreshConvRows(); }
+function convFileDone(sec){ if(convActive<0) return;
+  convFiles[convActive].state="done"; convFiles[convActive].sec=sec; refreshConvRows(); }
 
 // ---------- convert (streaming) ----------
 convertBtn.onclick=async ()=>{
@@ -299,8 +372,11 @@ convertBtn.onclick=async ()=>{
   const options={
     dpi:parseInt($("#dpi").value)||300, force_ocr:$("#forceOcr").checked,
     layout:document.querySelector("input[name=layout]:checked").value,
+    convert_style:document.querySelector("input[name=cstyle]:checked").value,
+    psm:document.querySelector("input[name=psm]:checked").value,
     formats, font:$("#font").value.trim()||"Hind Vadodara", langs:[...bulkLangs],
-    items:files.map(f=>({langs:[...f.langs], pages: f.pagesMode==="specific"?[...f.pages].sort((a,b)=>a-b).join(","):""})),
+    items:files.map(f=>({langs:[...f.langs], searchable_pdf:!!f.searchPdf,
+      pages: f.pagesMode==="specific"?[...f.pages].sort((a,b)=>a-b).join(","):""})),
   };
   const fd=new FormData();
   files.forEach(f=>fd.append("files", f.file, f.file.name));
@@ -335,17 +411,21 @@ convertBtn.onclick=async ()=>{
 
   function handle(ev){
     if(ev.type==="start"){ JOB=ev.job; sessionJobs.add(ev.job); }
-    else if(ev.type==="file_start"){ logLine(`▶ ${ev.name}  (${(ev.langs||[]).map(cap).join("+")})`); }
+    else if(ev.type==="plan"){ buildConvBars(ev.files||[]); }
+    else if(ev.type==="file_start"){ convFileStart(ev.name); logLine(`▶ ${ev.name}  (${(ev.langs||[]).map(cap).join("+")})${ev.pages_total?`  — ${ev.pages_total} page(s)`:""}`); }
+    else if(ev.type==="progress"){ convProgress(ev.done,ev.total); }
     else if(ev.type==="log"){ logLine(`    ${ev.msg}`); }
     else if(ev.type==="file_done"){
+      convFileDone(ev.seconds);
       results.push({name:ev.name, text:ev.text||"", downloads:ev.downloads||[], counts:ev.counts||{}, error:ev.error||null});
       const row=document.createElement("div"); row.className="dl";
       if(ev.error){ row.innerHTML=`<span class="dl-name">${esc(ev.name)}</span><span class="err">${esc(ev.error)}</span>`; logLine(`    [ERROR] ${ev.error}`); }
       else{ okCount++;
         const counts=Object.entries(ev.counts).map(([k,v])=>`${k} ${v}`).join(" · ");
-        let html=`<span class="dl-name">${esc(ev.name)}</span>${dlLinks({downloads:ev.downloads})}`;
+        let html=`<span class="dl-name">${esc(ev.name)}</span>`;
         if(counts) html+=`<span class="badge">${counts}</span>`;
-        row.innerHTML=html; logLine(`    ✓ done`); }
+        html+=`<span class="dl-actions">${dlLinks({downloads:ev.downloads})}</span>`;
+        row.innerHTML=html; logLine(`    ✓ done in ${ev.seconds!=null?fmtSec(ev.seconds):"?"}`); }
       downloadsEl.appendChild(row);
       renderResults();
     }
