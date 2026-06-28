@@ -223,9 +223,9 @@ em{font-style:normal}
 
 /* responsive */
 @media (max-width:920px){
-  .layout{grid-template-columns:1fr;margin-top:-80px}
+  .layout{grid-template-columns:1fr;margin-top:10px}
   .results{position:static;min-height:auto}
-  .hero{padding-bottom:120px}
+  .hero{padding-bottom:14px}
   .preview{min-height:280px}
 }
 @media (max-width:520px){

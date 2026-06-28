@@ -80,8 +80,35 @@ function addFiles(list){
   renderFiles();
   if(added) toast(`Added ${added} file${added>1?"s":""}`);
 }
+// pdf.js lazy-load (page count client-side -> file ek j vaar upload thay)
+let _pdfjsP=null;
+function loadPdfjs(){
+  if(window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+  if(_pdfjsP) return _pdfjsP;
+  _pdfjsP=new Promise((res,rej)=>{
+    const s=document.createElement("script");
+    s.src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js";
+    s.onload=()=>{ try{ window.pdfjsLib.GlobalWorkerOptions.workerSrc=
+      "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js"; }catch(_){}
+      res(window.pdfjsLib); };
+    s.onerror=()=>rej(new Error("pdfjs load failed"));
+    document.head.appendChild(s);
+  });
+  return _pdfjsP;
+}
 async function fetchCount(e){
   if(e.count!=null) return e.count;
+  const isPdf=e.file.name.toLowerCase().endsWith(".pdf");
+  if(isPdf){
+    // Client-side count: koi upload nahi (convert vakhate j ek vaar upload thashe)
+    try{
+      const lib=await loadPdfjs();
+      const buf=await e.file.arrayBuffer();
+      const doc=await lib.getDocument({data:buf}).promise;
+      e.count=doc.numPages; return e.count;
+    }catch(_){ /* CDN/offline fail -> server fallback niche */ }
+  }
+  // Fallback (images/multipage-tiff, athva pdfjs fail): server par count
   const fd=new FormData(); fd.append("file", e.file, e.file.name);
   const r=await fetch("/api/pagecount",{method:"POST",body:fd}); const d=await r.json();
   e.count=d.pages||1; return e.count;
