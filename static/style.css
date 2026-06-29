@@ -529,3 +529,7 @@ body{display:flex;flex-direction:column;min-height:100vh}
   padding:6px 12px;border-radius:8px;border:1.5px solid rgba(255,255,255,.5);
   background:rgba(255,255,255,.12);color:#fff;text-decoration:none}
 .userbar a:hover,.userbar button:hover{background:rgba(255,255,255,.22)}
+
+/* ===== col-output-wrap: Action card (step 3) + Output card (step 4) stacked ===== */
+.col-output-wrap{display:flex;flex-direction:column;gap:16px;min-width:0}
+#actionCard .action-row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}

@@ -9,6 +9,65 @@
 <link href="https://fonts.googleapis.com/css2?family=Hind+Vadodara:wght@400;500;600;700&family=Sora:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
 <link rel="icon" type="image/png" href="/static/logo-white.png" />
 <link rel="stylesheet" href="/static/style.css" />
+
+<script>
+/* ============================================================
+   SMVS OCR — Anti Inspect / DevTools Protection
+   - Right-click disabled
+   - F12, Ctrl+Shift+I/J/C, Ctrl+U, Ctrl+S blocked
+   - View Source blocked
+   - DevTools open detection -> tab close / blank
+   ============================================================ */
+(function(){
+  "use strict";
+
+  /* 1. Right-click disable */
+  document.addEventListener("contextmenu", function(e){
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    return false;
+  }, true);
+
+  /* 2. Keyboard shortcuts block */
+  document.addEventListener("keydown", function(e){
+    var k = e.key ? e.key.toUpperCase() : "";
+    var ctrl = e.ctrlKey || e.metaKey;
+    var shift = e.shiftKey;
+    // F12
+    if(e.keyCode === 123 || k === "F12"){
+      e.preventDefault(); e.stopImmediatePropagation(); return false;
+    }
+    // Ctrl+Shift+I, Ctrl+Shift+J, Ctrl+Shift+C
+    if(ctrl && shift && (k==="I"||k==="J"||k==="C")){
+      e.preventDefault(); e.stopImmediatePropagation(); return false;
+    }
+    // Ctrl+U (view source), Ctrl+S (save page)
+    if(ctrl && (k==="U"||k==="S")){
+      e.preventDefault(); e.stopImmediatePropagation(); return false;
+    }
+  }, true);
+
+  /* 3. DevTools open detection via window size gap */
+  var _threshold = 170;
+  var _killed = false;
+  function killTab(){
+    if(_killed) return;
+    _killed = true;
+    try{ window.close(); }catch(_){}
+    try{ window.location.replace("about:blank"); }catch(_){}
+  }
+  function checkDevTools(){
+    var widthGap  = window.outerWidth  - window.innerWidth;
+    var heightGap = window.outerHeight - window.innerHeight;
+    if(widthGap > _threshold || heightGap > _threshold){
+      killTab();
+    }
+  }
+  setInterval(checkDevTools, 1000);
+  window.addEventListener("resize", checkDevTools);
+
+})();
+</script>
 </head>
 <body>
 
@@ -94,10 +153,20 @@
             <label class="pill"><input type="radio" name="layout" value="continuous" /><span>Continuous</span></label>
           </div>
         </div>
+        <div class="field"><span>Output Mode</span>
+          <div class="pills">
+            <label class="pill"><input type="radio" name="outmode" value="paragraph" checked /><span>Paragraph</span></label>
+            <label class="pill"><input type="radio" name="outmode" value="line" /><span>Line by Line</span></label>
+          </div>
+          <small class="hint" id="outmodeHint">Paragraph: Lines joined into paragraphs. Line by Line: Each original line on its own line.</small>
+        </div>
       </div>
     </div>
 
-    <div class="card">
+  </div>
+
+  <div class="col-output-wrap">
+    <div class="card" id="actionCard">
       <div class="card-head"><span class="step">3</span><h2>Action</h2></div>
       <div class="action-row">
         <button id="convertBtn" class="btn-primary" disabled>
@@ -106,7 +175,6 @@
         <button id="clearBtn" class="btn-ghost">Clear All</button>
       </div>
     </div>
-  </div>
 
   <section class="results card col-output" id="resultsCard">
     <div class="card-head">
@@ -128,6 +196,7 @@
       <textarea id="preview" class="preview" spellcheck="false"></textarea>
     </div>
   </section>
+  </div>
 </main>
 
 <footer class="foot">Runs entirely on your own server. Uploaded files are processed temporarily and are permanently removed when you click <b>Clear All</b> or close this tab, and automatically after 1 hour. No data is kept after your session.</footer>

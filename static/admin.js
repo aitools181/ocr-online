@@ -218,3 +218,10 @@ $("#addUserBtn").onclick=addUser;
 $("#logoutBtn").onclick=async()=>{ try{ await fetch("/api/logout",{method:"POST"}); }catch{} window.location.href="/login"; };
 
 loadUsers(); loadFonts(); loadJobs();
+
+// Version badge
+(function(){
+  const el = document.getElementById("versionBadge");
+  if(!el) return;
+  el.textContent = "v2.2  ·  29 Jun 2025";
+})();

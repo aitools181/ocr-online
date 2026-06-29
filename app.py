@@ -294,6 +294,7 @@ async def convert(request: Request, files: list[UploadFile] = File(...), options
     font = opts.get("font") or engine.DEFAULT_DOCX_FONT
     style = "text" if opts.get("convert_style") == "text" else "full"
     psm = 6 if str(opts.get("psm")) == "6" else 3
+    line_mode = bool(opts.get("line_mode", False))
     default_pdf = bool(opts.get("searchable_pdf", False))   # fallback if per-file absent
     default_langs = opts.get("langs") or ["eng"]
     items_opt = opts.get("items") or []      # per-file: [{langs:[], pages:"", searchable_pdf:bool}]
@@ -368,6 +369,8 @@ async def convert(request: Request, files: list[UploadFile] = File(...), options
                     units = total * (2 if want_pdf else 1)   # structured + pdf pass
                     q.put({"type": "file_start", "name": orig, "langs": langs,
                            "pages_total": units})
+                    q.put({"type": "log", "name": orig,
+                           "msg": f"Output Mode: {'Line by Line' if line_mode else 'Paragraph'}"})
                     t0 = time.time()
                     try:
                         done = [0]
@@ -379,9 +382,10 @@ async def convert(request: Request, files: list[UploadFile] = File(...), options
 
                         items = engine.build_document(
                             src, lang_str, dpi, force_ocr, sel, style=style, psm=psm,
+                            line_mode=line_mode,
                             progress=prog,
                             log=lambda m, _n=orig: q.put({"type": "log", "name": _n, "msg": m}))
-                        text = engine.render_text(items, pagewise)
+                        text = engine.render_text(items, pagewise, line_mode=line_mode)
                         counts = engine.count_scripts(items, langs)
                         downloads = []
                         if want_txt:
@@ -392,7 +396,7 @@ async def convert(request: Request, files: list[UploadFile] = File(...), options
                             produced.append(tp)
                         if want_docx:
                             dp = os.path.join(out_dir, stem + ".docx")
-                            engine.write_docx(items, dp, font, pagewise)
+                            engine.write_docx(items, dp, font, pagewise, line_mode=line_mode)
                             downloads.append({"label": "Word", "file": stem + ".docx"})
                             produced.append(dp)
                         if want_pdf:

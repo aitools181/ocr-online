@@ -654,7 +654,7 @@ def _counts_line(paras, lang_codes):
     return " ".join(f"{k}={v}" for k, v in c.items())
 
 
-def build_document(path, lang, dpi, force_ocr, selected_pages, progress=None, log=None, style="full", psm=3):
+def build_document(path, lang, dpi, force_ocr, selected_pages, progress=None, log=None, style="full", psm=3, line_mode=False):
     """Return list[(label, paras)]. selected_pages: 1-based list or None=all.
     log(msg): optional per-page live message callback."""
     ext = os.path.splitext(path)[1].lower()
@@ -690,7 +690,7 @@ def build_document(path, lang, dpi, force_ocr, selected_pages, progress=None, lo
                     mode = "text"
             finally:
                 d.close()
-            return pno, _paragraphize(paras), mode
+            return pno, (paras if line_mode else _paragraphize(paras)), mode
 
         # Multiple core hoy to pages PARALLEL OCR (Tesseract subprocess -> GIL release)
         workers = min(len(todo), (os.cpu_count() or 1), MAX_OCR_WORKERS)
@@ -721,7 +721,8 @@ def build_document(path, lang, dpi, force_ocr, selected_pages, progress=None, lo
         for pno in todo:
             if 1 <= pno <= len(frames):
                 with _OCR_SEM:
-                    paras = _paragraphize(ocr_image_structured(frames[pno - 1], lang, style, psm))
+                    raw_paras = ocr_image_structured(frames[pno - 1], lang, style, psm)
+                    paras = raw_paras if line_mode else _paragraphize(raw_paras)
                 pages.append((f"Page {pno}", paras))
                 emit(f"Page {pno}", "OCR", paras)
                 tick()
@@ -742,7 +743,8 @@ def build_document(path, lang, dpi, force_ocr, selected_pages, progress=None, lo
     else:
         try:
             with Image.open(path) as im:
-                paras = ocr_image_structured(im.convert("L"), lang)
+                raw_paras = ocr_image_structured(im.convert("L"), lang)
+                paras = raw_paras if line_mode else _paragraphize(raw_paras)
             pages = [("Page 1", paras)]; emit("Page 1", "OCR", paras)
         except Exception:
             paras = extract_text_file(path)
@@ -753,14 +755,50 @@ def build_document(path, lang, dpi, force_ocr, selected_pages, progress=None, lo
 
 
 # ---------------------------------------------------------------- render
-def render_text(items, pagewise):
+def render_text(items, pagewise, line_mode=False):
+    """line_mode=True: each original line on its own line (\n between lines).
+       line_mode=False (default): paragraph mode — lines joined with space (brk skipped)."""
+
+    def para_to_text(para, line_mode):
+        if line_mode:
+            # brk token = newline; collect words per line
+            lines = []
+            cur = []
+            for r in para:
+                if r.get("brk"):
+                    lines.append("".join(x["text"] for x in cur))
+                    cur = []
+                else:
+                    cur.append(r)
+            if cur:
+                lines.append("".join(x["text"] for x in cur))
+            # filter empty lines at start/end
+            while lines and not lines[0].strip():
+                lines.pop(0)
+            while lines and not lines[-1].strip():
+                lines.pop()
+            return "\n".join(lines)
+        else:
+            # paragraph mode: brk -> space (join lines into one paragraph)
+            parts = []
+            for r in para:
+                if r.get("brk"):
+                    if parts and not parts[-1].endswith(" "):
+                        parts.append(" ")
+                else:
+                    t = r.get("text", "")
+                    if t:
+                        parts.append(t)
+            return "".join(parts).strip()
+
     out = []
     for idx, (label, page) in enumerate(items):
         if pagewise:
             if idx > 0:
                 out.append("")
             out.append(f"===== {label} =====")
-        para_texts = ["".join(r["text"] for r in para) for para in page]
+        para_texts = [para_to_text(p, line_mode) for p in page]
+        para_texts = [t for t in para_texts if t.strip()]
         out.append("\n\n".join(para_texts))
     return "\n".join(out).strip() + "\n"
 
@@ -803,7 +841,7 @@ def _set_run_font(run, name, size_pt, bold, italic):
         rfonts.set(qn(attr), name)
 
 
-def write_docx(items, out_path, font_name, pagewise):
+def write_docx(items, out_path, font_name, pagewise, line_mode=False):
     from docx import Document as Docx
     from docx.shared import Pt, Mm
     from docx.oxml.ns import qn
@@ -830,12 +868,23 @@ def write_docx(items, out_path, font_name, pagewise):
             h = doc.add_paragraph()
             _set_run_font(h.add_run(label), font_name, 13, True, False)
         for para in page:
-            p = doc.add_paragraph()
-            for r in para:
-                if r.get("brk"):
-                    p.add_run().add_break()
-                    continue
-                _set_run_font(p.add_run(r["text"]), font_name,
-                              r.get("size") or 12, r.get("bold", False),
-                              r.get("italic", False))
+            if line_mode:
+                # Line mode: brk = new paragraph (preserves original line breaks)
+                p = doc.add_paragraph()
+                for r in para:
+                    if r.get("brk"):
+                        p = doc.add_paragraph()
+                        continue
+                    _set_run_font(p.add_run(r["text"]), font_name,
+                                  r.get("size") or 12, r.get("bold", False),
+                                  r.get("italic", False))
+            else:
+                p = doc.add_paragraph()
+                for r in para:
+                    if r.get("brk"):
+                        p.add_run().add_break()
+                        continue
+                    _set_run_font(p.add_run(r["text"]), font_name,
+                                  r.get("size") or 12, r.get("bold", False),
+                                  r.get("italic", False))
     doc.save(out_path)

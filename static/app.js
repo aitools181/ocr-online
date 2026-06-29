@@ -97,14 +97,14 @@ $("#fontUpload")&&($("#fontUpload").onclick=()=>$("#fontFile").click());
 $("#fontFile")&&($("#fontFile").onchange=async (e)=>{
   const f=e.target.files&&e.target.files[0]; if(!f) return;
   const ext=(f.name.split(".").pop()||"").toLowerCase();
-  if(ext!=="ttf"&&ext!=="otf"){ toast("Only .ttf or .otf fonts","err"); e.target.value=""; return; }
-  toast("Uploading font…");
+  if(ext!=="ttf"&&ext!=="otf"){ toast("Only .ttf or .otf fonts are supported","err"); e.target.value=""; return; }
+  toast("Uploading font...");
   const fd=new FormData(); fd.append("file", f, f.name);
   try{
     const r=await fetch("/api/fonts/upload",{method:"POST",body:fd});
     const d=await r.json();
     if(!r.ok||d.error){ toast(d.error||"Font upload failed","err"); }
-    else { await loadFonts(d.name); toast(`✓ Font "${d.name}" uploaded & added to the list`,"ok"); }
+    else { await loadFonts(d.name); toast(`Font "${d.name}" uploaded and added to the list`,"ok"); }
   }catch(err){ toast("Font upload failed","err"); }
   e.target.value="";
 });
@@ -222,7 +222,7 @@ function renderFiles(){
     ptog.className="pdf-tog"+(e.searchPdf?" on":""); ptog.textContent="PDF";
     ptog.title="Make Searchable PDF for this file";
     ptog.onclick=()=>{ e.searchPdf=!e.searchPdf; ptog.classList.toggle("on",e.searchPdf);
-      toast(e.searchPdf?`Searchable PDF ON · ${e.file.name}`:"Searchable PDF OFF"); };
+      toast(e.searchPdf?`Searchable PDF ON: ${e.file.name}`:"Searchable PDF OFF"); };
 
     const rm=document.createElement("button"); rm.className="rm"; rm.textContent="✕"; rm.title="Remove";
     rm.onclick=()=>{ files.splice(i,1); renderFiles(); toast("File removed"); };
@@ -306,7 +306,7 @@ clearBtn.onclick=()=>{
   renderFiles(); renderResults();
   downloadsEl.innerHTML=""; fileTabs.innerHTML="";
   logEl.textContent=""; logEl.hidden=true; zipBtn.hidden=true;
-  toast("Cleared — all data removed from server");
+  toast("Cleared — all files removed from server");
 };
 window.addEventListener("pagehide", clearServer);
 window.addEventListener("beforeunload", clearServer);
@@ -349,6 +349,14 @@ document.querySelectorAll("input[name=cstyle]").forEach(r=>r.addEventListener("c
     : "Keeps Headers & Footers, Skips Design/Symbol Garbage.";
 }));
 
+// ---------- Output Mode hint ----------
+document.querySelectorAll("input[name=outmode]").forEach(r=>r.addEventListener("change",()=>{
+  const h=$("#outmodeHint"); if(!h) return;
+  h.textContent = document.querySelector("input[name=outmode]:checked").value==="line"
+    ? "Line by Line: Every original scanned line becomes its own separate line in output."
+    : "Paragraph: Lines within a paragraph are joined together with spaces.";
+}));
+
 // ---------- conversion progress bars (per-file + total) ----------
 let convFiles=[], convActive=-1, convStart=0, pagesDoneAll=0, pagesTotalAll=0;
 function fmtSec(s){ s=Math.max(0,Math.round(s)); if(s<60) return s+"s"; const m=Math.floor(s/60); return m+"m "+(s%60)+"s"; }
@@ -357,7 +365,7 @@ function buildConvBars(plan){
   convActive=-1; convStart=performance.now(); pagesDoneAll=0;
   pagesTotalAll=convFiles.reduce((a,f)=>a+f.total,0);
   uploadProg.hidden=false;
-  let html='<div class="up-title">Converting…</div>';
+  let html='<div class="up-title">Converting...</div>';
   html+=`<div class="up-row"><span class="up-name">Total</span><div class="up-bar"><i id="cvtotal"></i></div><span class="up-pct" id="cvtotalp">0%</span></div>`;
   convFiles.forEach((f,i)=>{ html+=`<div class="up-row"><span class="up-name" title="${esc(f.name)}">${esc(f.name)}</span><div class="up-bar"><i id="cv${i}"></i></div><span class="up-pct cv-stat" id="cv${i}p">queue</span></div>`; });
   uploadProg.innerHTML=html;
@@ -394,8 +402,8 @@ function convFileDone(sec){ if(convActive<0) return;
 convertBtn.onclick=async ()=>{
   if(!files.length) return;
   const formats=[]; if($("#fmtTxt").checked) formats.push("txt"); if($("#fmtDocx").checked) formats.push("docx");
-  if(!formats.length){ setStatus("Pick At Least One Output Format.","err"); return; }
-  for(const f of files){ if(!f.langs.size){ setStatus(`"${f.file.name}" mate language select karo.`,"err"); return; } }
+  if(!formats.length){ setStatus("Please select at least one output format.","err"); return; }
+  for(const f of files){ if(!f.langs.size){ setStatus(`Please select a language for "${f.file.name}".`,"err"); return; } }
 
   // purano session-job server par thi kaadi nakho (storage temporary)
   clearServer(); sessionJobs.clear();
@@ -405,6 +413,7 @@ convertBtn.onclick=async ()=>{
     layout:document.querySelector("input[name=layout]:checked").value,
     convert_style:document.querySelector("input[name=cstyle]:checked").value,
     psm:document.querySelector("input[name=psm]:checked").value,
+    line_mode:document.querySelector("input[name=outmode]:checked").value==="line",
     formats, font:$("#font").value.trim()||"Hind Vadodara", langs:[...bulkLangs],
     items:files.map(f=>({langs:[...f.langs], searchable_pdf:!!f.searchPdf,
       pages: f.pagesMode==="specific"?[...f.pages].sort((a,b)=>a-b).join(","):""})),
@@ -414,7 +423,7 @@ convertBtn.onclick=async ()=>{
   fd.append("options", JSON.stringify(options));
 
   convertBtn.disabled=true; convertBtn.classList.add("busy");
-  setStatus("Converting…","busy");
+  setStatus("Converting...","busy");
   downloadsEl.innerHTML=""; results=[]; curIdx=0; renderResults();
   zipBtn.hidden=true; logEl.textContent=""; logEl.hidden=false;
 
@@ -436,8 +445,8 @@ convertBtn.onclick=async ()=>{
       xhr.onerror=()=>reject(new Error("Network error"));
       xhr.send(fd);
     });
-    setStatus(`Done — ${okCount}/${total} File(s) Converted.`);
-  }catch(err){ setStatus("Failed: "+err.message,"err"); }
+    setStatus(`Done — ${okCount}/${total} file(s) converted.`);
+  }catch(err){ setStatus("Conversion failed: "+err.message,"err"); }
   finally{ convertBtn.disabled=false; convertBtn.classList.remove("busy"); uploadProg.hidden=true; }
 
   function handle(ev){
