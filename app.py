@@ -274,7 +274,7 @@ async def upload_font(file: UploadFile = File(...)):
 
 
 @app.post("/api/convert")
-async def convert(files: list[UploadFile] = File(...), options: str = Form(...)):
+async def convert(request: Request, files: list[UploadFile] = File(...), options: str = Form(...)):
     _cleanup()
     try:
         opts = json.loads(options)
@@ -304,6 +304,16 @@ async def convert(files: list[UploadFile] = File(...), options: str = Form(...))
     out_dir = os.path.join(job_dir, "out")
     os.makedirs(in_dir, exist_ok=True)
     os.makedirs(out_dir, exist_ok=True)
+
+    # Job nu username metadata save karo
+    current_user = getattr(request.state, "user", None)
+    job_username = current_user.get("username", "unknown") if current_user else "unknown"
+    meta_path = os.path.join(job_dir, "meta.json")
+    try:
+        with open(meta_path, "w", encoding="utf-8") as f:
+            json.dump({"username": job_username}, f)
+    except OSError:
+        pass
 
     # Files ne pehla disk par save karo (async), pachhi stream ma process.
     saved = []
@@ -464,8 +474,19 @@ async def admin_list():
                     files.append({"name": fn, "size": sz})
                     total += sz
         mt = os.path.getmtime(p)
+        # Job username meta.json mathi vaancho
+        job_user = "—"
+        meta_path = os.path.join(p, "meta.json")
+        if os.path.isfile(meta_path):
+            try:
+                with open(meta_path, encoding="utf-8") as f:
+                    meta = json.load(f)
+                    job_user = meta.get("username", "—")
+            except Exception:
+                pass
         jobs.append({
             "job": d,
+            "username": job_user,
             "completed": datetime.fromtimestamp(mt, timezone.utc).isoformat(),
             "completed_epoch": mt,
             "active": d in ACTIVE_JOBS,
@@ -474,6 +495,7 @@ async def admin_list():
         })
     jobs.sort(key=lambda j: j["completed_epoch"], reverse=True)
     return {"jobs": jobs, "ttl_hours": JOB_TTL // 3600}
+
 
 
 @app.post("/api/admin/delete")
@@ -525,6 +547,25 @@ async def admin_delete_user(payload: dict):
         _save_users(users)
         return {"ok": True}
     return JSONResponse({"error": "User not found (built-in admin can't be deleted)."}, status_code=400)
+
+
+@app.post("/api/admin/users/reset-password")
+async def admin_reset_password(payload: dict):
+    """Admin user no password reset kare."""
+    username = str(payload.get("username", "")).strip()
+    new_password = str(payload.get("new_password", ""))
+    if len(new_password) < 4:
+        return JSONResponse({"error": "Password must be at least 4 characters."}, status_code=400)
+    if username == ADMIN_USERNAME:
+        return JSONResponse({"error": "Built-in admin password config.yaml ma badlo."}, status_code=400)
+    users = _load_users()
+    if username not in users:
+        return JSONResponse({"error": "User not found."}, status_code=404)
+    salt = os.urandom(16)
+    users[username]["salt"] = salt.hex()
+    users[username]["hash"] = _hash_pw(new_password, salt)
+    _save_users(users)
+    return {"ok": True, "username": username}
 
 
 # ---- Font management (admin only via middleware) ----
