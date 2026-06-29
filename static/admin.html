@@ -13,9 +13,11 @@
   .admin-head img{width:46px;height:46px;border-radius:11px;background:#fff;padding:5px;object-fit:contain;box-shadow:0 6px 18px rgba(0,0,0,.18)}
   .admin-head h1{font-family:"Sora",sans-serif;font-size:24px;margin:0}
   .admin-head .sub{color:var(--muted);font-size:13px}
-  .login{max-width:380px}
-  .login .field{margin-bottom:12px}
-  .login input{width:100%;padding:11px 13px;border:1px solid var(--line);border-radius:9px;font:inherit;font-size:14px}
+  .admin-head .spacer{flex:1}
+  .admin-head a,.admin-head button{font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;
+    padding:7px 13px;border-radius:9px;border:1.5px solid var(--saffron);background:#fff;color:var(--saffron2);text-decoration:none}
+  .admin-head a:hover,.admin-head button:hover{background:var(--saffron);color:#fff}
+  .card{margin-bottom:18px}
   .bar-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
   .bar-actions .spacer{flex:1}
   table{width:100%;border-collapse:collapse;font-size:13px}
@@ -24,27 +26,52 @@
   td .jid{font-family:ui-monospace,monospace;font-size:11.5px;color:var(--muted)}
   td .fn{display:block}
   .pill-active{display:inline-block;background:#fdecc8;color:#9a6a12;border-radius:6px;padding:1px 7px;font-size:11px;margin-left:6px}
+  .pill-role{display:inline-block;background:var(--teal-soft);color:var(--teal);border-radius:6px;padding:1px 8px;font-size:11px}
+  .pill-admin{background:#fdecc8;color:#9a6a12}
   .danger{background:#c0392b;color:#fff;border:none;border-radius:9px;padding:9px 16px;font:inherit;font-weight:600;cursor:pointer}
   .danger:disabled{opacity:.45;cursor:not-allowed}
-  .empty{padding:30px;text-align:center;color:var(--muted)}
+  .mini-danger{background:none;border:1px solid #e0a9a3;color:#c0392b;border-radius:7px;padding:4px 10px;font:inherit;font-size:12px;cursor:pointer}
+  .mini-danger:hover{background:#c0392b;color:#fff}
+  .empty{padding:24px;text-align:center;color:var(--muted)}
   .muted{color:var(--muted)}
+  .userform{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px}
+  .userform .f{display:flex;flex-direction:column;gap:5px}
+  .userform .f span{font-size:12px;font-weight:600}
+  .userform input{padding:9px 11px;border:1px solid var(--line);border-radius:9px;font:inherit;font-size:13px}
+  .add-btn{background:var(--saffron);color:#fff;border:none;border-radius:9px;padding:10px 16px;font:inherit;font-weight:600;cursor:pointer}
+  .add-btn:hover{filter:brightness(1.05)}
 </style>
 </head>
 <body>
 <div class="admin-wrap">
   <div class="admin-head">
     <img src="/static/logo.png" alt="SMVS" />
-    <div><h1>SMVS OCR — Admin</h1><div class="sub">Server par store thayela output jobs manage karo</div></div>
+    <div><h1>SMVS OCR — Admin</h1><div class="sub">Users, fonts &amp; stored jobs</div></div>
+    <span class="spacer"></span>
+    <a href="/">← App</a>
+    <button id="logoutBtn" type="button">Logout</button>
   </div>
 
-  <div id="loginCard" class="card login">
-    <div class="card-head"><h2>Login</h2></div>
-    <div class="field"><input id="pw" type="password" placeholder="Admin password" autofocus /></div>
-    <button id="loginBtn" class="btn-primary" style="width:100%;justify-content:center">Open</button>
-    <p id="loginErr" class="muted" style="margin-top:10px"></p>
+  <!-- Users -->
+  <div class="card">
+    <div class="card-head"><h2>Users</h2></div>
+    <div class="userform">
+      <label class="f"><span>Username</span><input id="nuUser" type="text" placeholder="e.g. ramesh" /></label>
+      <label class="f"><span>Password</span><input id="nuPass" type="text" placeholder="min 4 chars" /></label>
+      <button id="addUserBtn" class="add-btn" type="button">+ Create User</button>
+    </div>
+    <div id="usersWrap"></div>
   </div>
 
-  <div id="listCard" class="card" hidden>
+  <!-- Fonts -->
+  <div class="card">
+    <div class="card-head"><h2>Uploaded Fonts</h2></div>
+    <div id="fontsWrap"></div>
+  </div>
+
+  <!-- Jobs -->
+  <div class="card">
+    <div class="card-head"><h2>Stored Jobs</h2></div>
     <div class="bar-actions">
       <label class="muted"><input type="checkbox" id="selAll" /> Select all</label>
       <span id="meta" class="muted"></span>

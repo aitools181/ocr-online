@@ -77,6 +77,37 @@ async function loadLanguages(){
   DEFAULTS.forEach(c=>bulkLangs.add(c));
   bulkLangEl.appendChild(makeLangDropdown(bulkLangs,null));
 }
+
+// ---------- Word font dropdown (presets + uploaded) ----------
+async function loadFonts(selectName){
+  const sel=$("#font"); if(!sel) return;
+  let data; try{ data=await (await fetch("/api/fonts")).json(); }catch(e){ return; }
+  const want=selectName || sel.value || data.default;
+  sel.innerHTML="";
+  (data.groups||[]).forEach(g=>{
+    const og=document.createElement("optgroup"); og.label=g.label;
+    g.fonts.forEach(name=>{ const o=document.createElement("option"); o.value=name; o.textContent=name; og.appendChild(o); });
+    sel.appendChild(og);
+  });
+  // select desired (or default)
+  const names=[...sel.options].map(o=>o.value);
+  sel.value = names.includes(want)?want : (names.includes(data.default)?data.default:(names[0]||""));
+}
+$("#fontUpload")&&($("#fontUpload").onclick=()=>$("#fontFile").click());
+$("#fontFile")&&($("#fontFile").onchange=async (e)=>{
+  const f=e.target.files&&e.target.files[0]; if(!f) return;
+  const ext=(f.name.split(".").pop()||"").toLowerCase();
+  if(ext!=="ttf"&&ext!=="otf"){ toast("Only .ttf or .otf fonts","err"); e.target.value=""; return; }
+  toast("Uploading font…");
+  const fd=new FormData(); fd.append("file", f, f.name);
+  try{
+    const r=await fetch("/api/fonts/upload",{method:"POST",body:fd});
+    const d=await r.json();
+    if(!r.ok||d.error){ toast(d.error||"Font upload failed","err"); }
+    else { await loadFonts(d.name); toast(`✓ Font "${d.name}" uploaded & added to the list`,"ok"); }
+  }catch(err){ toast("Font upload failed","err"); }
+  e.target.value="";
+});
 applyAll.onclick=()=>{ files.forEach(f=>{ f.langs=new Set(bulkLangs); }); renderFiles(); toast("Language applied to all files"); };
 
 // ---------- files ----------
@@ -437,3 +468,20 @@ convertBtn.onclick=async ()=>{
 zipBtn.addEventListener("click",()=>toast("Downloading .zip"));
 
 loadLanguages();
+loadFonts();
+
+// ---------- user bar (login session) ----------
+(async function(){
+  try{
+    const me=await (await fetch("/api/me")).json();
+    if(me&&me.username){
+      $("#uname").textContent="👤 "+me.username;
+      if(me.role==="admin") $("#adminLink").hidden=false;
+      $("#userbar").hidden=false;
+    }
+  }catch(e){}
+})();
+$("#logoutBtn")&&($("#logoutBtn").onclick=async()=>{
+  try{ await fetch("/api/logout",{method:"POST"}); }catch(e){}
+  window.location.href="/login";
+});

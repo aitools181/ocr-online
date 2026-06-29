@@ -13,6 +13,11 @@
 <body>
 
 <header class="hero">
+  <div class="userbar" id="userbar" hidden>
+    <span class="uname" id="uname"></span>
+    <a id="adminLink" href="/admin" hidden>Admin</a>
+    <button id="logoutBtn" type="button">Logout</button>
+  </div>
   <div class="hero-glyphs" aria-hidden="true">
     <span style="top:18%;left:7%;font-size:70px;transform:rotate(-8deg)">અ</span>
     <span style="top:30%;left:90%;font-size:90px;transform:rotate(10deg)">ஆ</span>
@@ -51,12 +56,14 @@
     <div class="card">
       <div class="card-head"><span class="step">2</span><h2>Settings</h2></div>
       <div class="settings">
-        <div class="grid2">
-          <label class="field"><span>OCR Detail <em>(DPI)</em></span>
-            <input id="dpi" type="number" min="150" max="600" step="50" value="300" /></label>
-          <label class="field"><span>Word Font</span>
-            <input id="font" type="text" value="Hind Vadodara" /></label>
-        </div>
+        <label class="field dpi-field"><span>OCR Detail <em>(DPI)</em></span>
+          <input id="dpi" type="number" min="150" max="600" step="50" value="300" /></label>
+        <label class="field"><span>Word Font</span>
+          <div class="font-row">
+            <select id="font" class="font-select"></select>
+            <button type="button" id="fontUpload" class="font-up" title="Upload a font file (.ttf/.otf)">📎 Upload Font</button>
+            <input id="fontFile" type="file" accept=".ttf,.otf" hidden />
+          </div></label>
         <label class="toggle">
           <input id="forceOcr" type="checkbox" /><span class="track"></span>
           <span class="toggle-label">Force OCR On Every Page</span>

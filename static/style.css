@@ -149,6 +149,14 @@ em{font-style:normal}
 .field input[type=number],.field input[type=text]{padding:10px 12px;border:1px solid var(--line);
   border-radius:10px;font:inherit;background:#fffdf8;width:100%}
 .field input:focus{outline:2px solid var(--saffron);outline-offset:1px;border-color:var(--saffron)}
+.font-row{display:flex;gap:8px;align-items:center}
+.font-select{flex:1;min-width:0;padding:10px 12px;border:1px solid var(--line);border-radius:10px;
+  font:inherit;background:#fffdf8;cursor:pointer}
+.font-select:focus{outline:2px solid var(--saffron);outline-offset:1px;border-color:var(--saffron)}
+.font-up{flex-shrink:0;white-space:nowrap;font-size:12.5px;font-weight:600;cursor:pointer;
+  padding:9px 12px;border-radius:10px;border:1.5px solid var(--saffron);background:#fff;color:var(--saffron2)}
+.font-up:hover{background:var(--saffron);color:#fff}
+.dpi-field input{max-width:150px}
 
 /* toggle switch */
 .toggle{display:flex;align-items:center;gap:11px;cursor:pointer}
@@ -489,3 +497,35 @@ body{display:flex;flex-direction:column;min-height:100vh}
 .cv-stat.queue{color:#a98a5c;font-style:italic}
 .cv-stat.done{color:#2e8b57;font-weight:600}
 .up-row:first-of-type .up-name{font-weight:700}
+
+/* ===== login page ===== */
+.login-body{min-height:100vh;display:flex;align-items:center;justify-content:center;
+  background:linear-gradient(135deg,#2a1a3a,#3a2550 55%,#1f1530);padding:20px}
+.login-card{width:100%;max-width:380px;background:#fff;border-radius:18px;
+  box-shadow:0 20px 60px rgba(0,0,0,.35);padding:28px 26px}
+.login-head{display:flex;align-items:center;gap:13px;margin-bottom:22px}
+.login-logo{width:50px;height:50px;border-radius:12px;object-fit:contain;padding:4px;
+  background:#fff;box-shadow:0 4px 14px rgba(0,0,0,.12)}
+.login-title{font-family:"Sora",sans-serif;font-weight:700;font-size:24px;color:var(--ink)}
+.login-sub{font-size:13px;color:var(--muted);margin-top:2px}
+.login-form{display:flex;flex-direction:column;gap:14px}
+.login-field{display:flex;flex-direction:column;gap:6px}
+.login-field span{font-size:13px;font-weight:600;color:var(--ink)}
+.login-field input{padding:11px 13px;border:1px solid var(--line);border-radius:10px;
+  font:inherit;background:#fffdf8}
+.login-field input:focus{outline:2px solid var(--saffron);outline-offset:1px;border-color:var(--saffron)}
+.login-err{background:#fdecea;color:#c0392b;border:1px solid #f5c6cb;border-radius:9px;
+  padding:9px 12px;font-size:13px}
+.login-btn{margin-top:4px;padding:12px;border:none;border-radius:10px;cursor:pointer;
+  font:inherit;font-size:15px;font-weight:600;color:#fff;
+  background:linear-gradient(90deg,var(--saffron),var(--saffron2))}
+.login-btn:hover{filter:brightness(1.04)}
+.login-btn:disabled{opacity:.7;cursor:default}
+
+/* ===== top user bar ===== */
+.userbar{position:absolute;top:14px;right:20px;z-index:5;display:flex;align-items:center;gap:10px}
+.userbar .uname{color:#fff;font-size:13px;font-weight:500;opacity:.92}
+.userbar a,.userbar button{font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;
+  padding:6px 12px;border-radius:8px;border:1.5px solid rgba(255,255,255,.5);
+  background:rgba(255,255,255,.12);color:#fff;text-decoration:none}
+.userbar a:hover,.userbar button:hover{background:rgba(255,255,255,.22)}

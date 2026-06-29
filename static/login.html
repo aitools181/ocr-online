@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Sign In · SMVS OCR</title>
+  <link rel="icon" href="/static/logo-white.png" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body class="login-body">
+  <div class="login-card">
+    <div class="login-head">
+      <img src="/static/logo.png" class="login-logo" alt="SMVS" />
+      <div>
+        <div class="login-title">SMVS OCR</div>
+        <div class="login-sub">Sign In To Continue</div>
+      </div>
+    </div>
+    <form id="loginForm" class="login-form" autocomplete="off">
+      <label class="login-field">
+        <span>Username</span>
+        <input id="lu" type="text" autocomplete="username" required autofocus />
+      </label>
+      <label class="login-field">
+        <span>Password</span>
+        <input id="lp" type="password" autocomplete="current-password" required />
+      </label>
+      <div id="loginErr" class="login-err" hidden></div>
+      <button type="submit" id="loginBtn" class="login-btn">Login</button>
+    </form>
+  </div>
+  <script>
+    const form = document.getElementById("loginForm");
+    const err = document.getElementById("loginErr");
+    const btn = document.getElementById("loginBtn");
+    form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      err.hidden = true; btn.disabled = true; btn.textContent = "Signing in…";
+      const fd = new FormData();
+      fd.append("username", document.getElementById("lu").value.trim());
+      fd.append("password", document.getElementById("lp").value);
+      try {
+        const r = await fetch("/api/login", { method: "POST", body: fd });
+        const d = await r.json();
+        if (r.ok && d.ok) { window.location.href = "/"; return; }
+        err.textContent = d.error || "Login failed."; err.hidden = false;
+      } catch { err.textContent = "Network error. Try again."; err.hidden = false; }
+      btn.disabled = false; btn.textContent = "Login";
+    });
+  </script>
+</body>
+</html>

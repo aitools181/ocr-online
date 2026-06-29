@@ -19,6 +19,62 @@ from PIL import Image, ImageSequence
 
 DEFAULT_DOCX_FONT = "Hind Vadodara"
 
+# Word font dropdown - preset fonts (groups) + uploaded fonts
+BUILTIN_FONTS = [
+    ("Hind Vadodara", "Gujarati"),
+    ("Noto Sans Gujarati", "Gujarati"),
+    ("Mukta Vaani", "Gujarati"),
+    ("Rasa", "Gujarati"),
+    ("Shruti", "Gujarati"),
+    ("Noto Sans Devanagari", "Devanagari"),
+    ("Mukta", "Devanagari"),
+    ("Hind", "Devanagari"),
+    ("Tiro Devanagari Hindi", "Devanagari"),
+    ("Mangal", "Devanagari"),
+    ("Poppins", "Devanagari / Latin"),
+    ("Arial", "General"),
+    ("Calibri", "General"),
+    ("Times New Roman", "General"),
+    ("Noto Sans", "General"),
+    ("Roboto", "General"),
+]
+
+
+def font_family_name(path):
+    """Uploaded font file (.ttf/.otf) nu family name kaadhe."""
+    try:
+        from fontTools.ttLib import TTFont
+        f = TTFont(path, lazy=True, fontNumber=0)
+        nm = f["name"]
+        for nid in (16, 1):                      # Typographic Family, then Family
+            rec = nm.getName(nid, 3, 1, 0x409) or nm.getName(nid, 1, 0, 0) or nm.getName(nid, 3, 0, 0x409)
+            if rec:
+                val = str(rec).strip()
+                if val:
+                    return val
+    except Exception:
+        pass
+    return os.path.splitext(os.path.basename(path))[0]
+
+
+def list_uploaded_fonts(fonts_dir):
+    """fonts_dir ma uploaded fonts ni list: [{name, file}]."""
+    out = []
+    try:
+        for fn in sorted(os.listdir(fonts_dir)):
+            if fn.lower().endswith((".ttf", ".otf")):
+                out.append({"name": font_family_name(os.path.join(fonts_dir, fn)), "file": fn})
+    except OSError:
+        pass
+    # duplicate names dedupe (name pramane)
+    seen = set()
+    uniq = []
+    for f in out:
+        if f["name"].lower() not in seen:
+            seen.add(f["name"].lower())
+            uniq.append(f)
+    return uniq
+
 
 def _auto_tesseract():
     """Windows par PATH ma tesseract na hoy to default install path try karo.
