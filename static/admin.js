@@ -223,5 +223,5 @@ loadUsers(); loadFonts(); loadJobs();
 (function(){
   const el = document.getElementById("versionBadge");
   if(!el) return;
-  el.textContent = "v2.2  ·  29 Jun 2025";
+  el.textContent = "v2.3  ·  30 Jun 2026";
 })();

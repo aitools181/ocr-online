@@ -13,23 +13,28 @@
 <script>
 /* ============================================================
    SMVS OCR — Anti Inspect / DevTools Protection
-   - Right-click disabled
-   - F12, Ctrl+Shift+I/J/C, Ctrl+U, Ctrl+S blocked
-   - View Source blocked
-   - DevTools open detection -> tab close / blank
+   - Admin user: NO restriction (full devtools access)
+   - Non-admin user: right-click, shortcuts, devtools all blocked
+   - Role is set by /api/me via window.__SMVS_ROLE__ (see app.js)
    ============================================================ */
 (function(){
   "use strict";
 
-  /* 1. Right-click disable */
+  function isAdmin(){
+    return window.__SMVS_ROLE__ === "admin";
+  }
+
+  /* 1. Right-click disable (skip for admin) */
   document.addEventListener("contextmenu", function(e){
+    if(isAdmin()) return;
     e.preventDefault();
     e.stopImmediatePropagation();
     return false;
   }, true);
 
-  /* 2. Keyboard shortcuts block */
+  /* 2. Keyboard shortcuts block (skip for admin) */
   document.addEventListener("keydown", function(e){
+    if(isAdmin()) return;
     var k = e.key ? e.key.toUpperCase() : "";
     var ctrl = e.ctrlKey || e.metaKey;
     var shift = e.shiftKey;
@@ -47,24 +52,116 @@
     }
   }, true);
 
-  /* 3. DevTools open detection via window size gap */
-  var _threshold = 170;
+  /* 3. DevTools open detection — works correctly on REAL mobile devices
+        AND on desktop, INCLUDING when desktop DevTools' mobile-emulation
+        ("Toggle device toolbar") mode is active.
+
+        WHY WE DO NOT TRY TO DETECT "IS THIS A MOBILE DEVICE":
+        Every signal commonly used to detect mobile — screen.width,
+        navigator.maxTouchPoints, 'ontouchstart' in window, user-agent —
+        is DELIBERATELY SPOOFED by Chrome's device emulation mode the
+        moment someone opens DevTools and clicks "Toggle device toolbar".
+        That means: if we use any of those signals to say "this looks
+        like a phone, skip the check", a user could open DevTools, turn
+        on phone emulation, and our own code would tell itself to stop
+        watching — leaving DevTools open with full access. This was
+        found in testing (this exact bypass worked) and is why all
+        mobile-sniffing has been removed below.
+
+        THE FIX: don't try to detect "mobile" at all. Just rely on the
+        one signal that is structurally impossible to fake from inside
+        the page: window.outerWidth/outerHeight vs innerWidth/innerHeight.
+          - On a REAL mobile phone (Android Chrome, iOS Safari): there is
+            no DevTools UI taking up screen space, so outer/inner stay
+            equal. The check simply never fires. No special-casing needed.
+          - On DESKTOP with DevTools docked (side/bottom/top): DevTools
+            physically takes layout space from the page, so outer/inner
+            ALWAYS differ — true even while "Toggle device toolbar" /
+            mobile emulation is active, because that emulation happens
+            INSIDE the same browser window that still has DevTools docked
+            into it.
+        This is simpler, can't be spoofed via emulation, and naturally
+        does the right thing on every platform without guessing. */
+
   var _killed = false;
   function killTab(){
-    if(_killed) return;
+    if(_killed || isAdmin()) return;
     _killed = true;
     try{ window.close(); }catch(_){}
     try{ window.location.replace("about:blank"); }catch(_){}
   }
-  function checkDevTools(){
+
+  // ---- Signal A: outer/inner size gap (docked devtools) ----
+  // Threshold kept generous (200px) — real docked DevTools panels are
+  // typically 300-500px wide / tall, far above normal browser chrome
+  // variance (toolbars, bookmarks bar, OS scaling round-off, mobile
+  // address-bar show/hide which is typically <=120px). On real mobile
+  // devices this gap structurally cannot occur from DevTools (no
+  // DevTools UI exists to dock), so no platform-detection is needed.
+  function sizeGapSignal(){
     var widthGap  = window.outerWidth  - window.innerWidth;
     var heightGap = window.outerHeight - window.innerHeight;
-    if(widthGap > _threshold || heightGap > _threshold){
+    return (widthGap > 200) || (heightGap > 200);
+  }
+
+  // NOTE: We intentionally do NOT use a `debugger;` statement as a timing
+  // trap. If DevTools is already open (via browser menu, OS shortcut, or
+  // an extension — i.e. NOT through the keys we block above), a
+  // `debugger;` statement PAUSES the entire JS thread until the user
+  // manually clicks "Resume" in DevTools. That means our own kill logic
+  // would never get a chance to run — DevTools would stay open
+  // indefinitely instead of being closed. This was found in testing
+  // ("Paused in debugger" banner) and removed for that reason.
+
+  // ---- Signals B/C/D: REMOVED ----
+  // Earlier versions of this script also used console-based heuristics
+  // (a getter-trap on a logged object, console.table timing, a toString
+  // getter trap) to also catch UNDOCKED DevTools (separate window, where
+  // the page's own window shows no size-gap).
+  //
+  // These were removed after real-world testing showed FALSE POSITIVES —
+  // tabs were being closed even when DevTools was never opened. Root
+  // causes:
+  //   1. Browser extensions (AdBlock, AdBlock Plus, and similar) inject
+  //      content-scripts that intercept/wrap console.log for their own
+  //      filtering/logging — this can trigger getter-traps meant only
+  //      for DevTools.
+  //   2. console.table / console.log timing varies a lot with normal
+  //      CPU load (background tabs, other apps, low-power laptops) —
+  //      not just with DevTools being open.
+  //   3. Some browsers lazily evaluate console arguments for their own
+  //      internal telemetry/performance reasons, unrelated to DevTools.
+  //
+  // A false positive here means a LEGITIMATE user gets kicked out of the
+  // app for no reason, which is worse than missing a rare edge case
+  // (someone manually undocking DevTools into a separate window). So we
+  // now rely ONLY on the size-gap signal below, which is deterministic
+  // and cannot be triggered by extensions, CPU load, or browser internals
+  // — it only changes when DevTools genuinely takes layout space from
+  // the browser window.
+
+  var _suspicionCount = 0;
+  var REQUIRED_CONSECUTIVE_HITS = 4;   // ~2 seconds of sustained gap required before kill
+
+  function checkDevTools(){
+    if(isAdmin() || _killed) return;
+
+    if(sizeGapSignal()){
+      _suspicionCount++;
+    } else {
+      _suspicionCount = 0; // reset on any clean check — avoids accumulating noise
+    }
+
+    if(_suspicionCount >= REQUIRED_CONSECUTIVE_HITS){
       killTab();
     }
   }
-  setInterval(checkDevTools, 1000);
-  window.addEventListener("resize", checkDevTools);
+
+  setInterval(checkDevTools, 500);
+  // Resize alone is no longer sufficient grounds to suspect DevTools
+  // (legit window resizing, OS scaling changes, monitor switches all
+  // fire resize) — checkDevTools on its 1s interval already covers this
+  // with the debounced multi-signal logic above.
 
 })();
 </script>

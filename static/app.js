@@ -479,11 +479,12 @@ zipBtn.addEventListener("click",()=>toast("Downloading .zip"));
 loadLanguages();
 loadFonts();
 
-// ---------- user bar (login session) ----------
+// ---------- user bar (login session) + role-based devtools restriction ----------
 (async function(){
   try{
     const me=await (await fetch("/api/me")).json();
     if(me&&me.username){
+      window.__SMVS_ROLE__ = me.role || "user";   // read by inline devtools-guard script in <head>
       $("#uname").textContent="👤 "+me.username;
       if(me.role==="admin") $("#adminLink").hidden=false;
       $("#userbar").hidden=false;

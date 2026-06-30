@@ -624,7 +624,7 @@ def download(job, fname):
 
 
 @app.get("/", response_class=HTMLResponse)
-def index():
+def index(request: Request):
     path = os.path.join(STATIC, "index.html")
     if not os.path.isfile(path):
         return HTMLResponse(
@@ -640,6 +640,14 @@ def index():
         return str(int(os.path.getmtime(p))) if os.path.isfile(p) else "1"
     html = html.replace("/static/style.css", f"/static/style.css?v={ver('style.css')}")
     html = html.replace("/static/app.js", f"/static/app.js?v={ver('app.js')}")
+
+    # Server-side role injection — admin user devtools/inspect restriction thi free rahe,
+    # ane delay vagar j (page load thatani sathe j role set thai jaay, race-condition nahi).
+    u = _read_token(request.cookies.get(COOKIE))
+    role = (u or {}).get("role", "guest")
+    role_script = f'<script>window.__SMVS_ROLE__={json.dumps(role)};</script>'
+    html = html.replace("<head>", "<head>\n" + role_script, 1)
+
     return HTMLResponse(html)
 
 

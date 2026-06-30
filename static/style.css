@@ -377,18 +377,33 @@ em{font-style:normal}
 @media (max-width:920px){ .top-grid{grid-template-columns:1fr} }
 
 /* ===== 3-column layout: Add Files | Settings | Convert+Output ===== */
-.layout{display:grid;grid-template-columns:1.15fr 0.85fr 1.1fr;gap:16px;align-items:start;max-width:1400px}
+.layout{display:grid;grid-template-columns:1.15fr 0.85fr 1.1fr;gap:16px;align-items:start;max-width:1400px;margin:0 auto}
 .col-output{display:flex;flex-direction:column;gap:16px;min-width:0}
 .col-output .convert-bar{margin:0}
 .results{position:static;min-height:0}
 .preview{min-height:340px}
+
+/* Large desktop / wide laptop (>1150px): keep the original 3-column layout as-is */
+
+/* Laptop / small desktop (920px–1150px, e.g. 1280×720, 1366×768):
+   collapse to 2 columns — Add Files + Settings side by side,
+   Action+Output card spans full width below them. */
 @media (max-width:1150px){
   .layout{grid-template-columns:1fr 1fr}
-  .col-output{grid-column:1 / -1}        /* output full width below the two cards */
+  .col-output-wrap{grid-column:1 / -1}
 }
+
+/* Tablet (760px–920px, e.g. iPad portrait/landscape):
+   still 2 columns is workable, but tighten gaps slightly for comfort */
+@media (max-width:920px) and (min-width:761px){
+  .layout{gap:14px}
+}
+
+/* Mobile (≤760px): single column, full stack */
 @media (max-width:760px){
   .layout{grid-template-columns:1fr}
   .col-output{grid-column:auto}
+  .col-output-wrap{grid-column:auto}
 }
 
 /* ===== middle column (Settings + Action stacked) ===== */
@@ -523,12 +538,37 @@ body{display:flex;flex-direction:column;min-height:100vh}
 .login-btn:disabled{opacity:.7;cursor:default}
 
 /* ===== top user bar ===== */
-.userbar{position:absolute;top:14px;right:20px;z-index:5;display:flex;align-items:center;gap:10px}
-.userbar .uname{color:#fff;font-size:13px;font-weight:500;opacity:.92}
+/* Desktop / tablet: absolute top-right, sitting above the hero title */
+.userbar{position:absolute;top:14px;right:20px;z-index:5;display:flex;align-items:center;gap:10px;
+  max-width:calc(100% - 40px);flex-wrap:wrap;justify-content:flex-end}
+.userbar .uname{color:#fff;font-size:13px;font-weight:500;opacity:.92;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;max-width:140px}
 .userbar a,.userbar button{font:inherit;font-size:12.5px;font-weight:600;cursor:pointer;
   padding:6px 12px;border-radius:8px;border:1.5px solid rgba(255,255,255,.5);
-  background:rgba(255,255,255,.12);color:#fff;text-decoration:none}
+  background:rgba(255,255,255,.12);color:#fff;text-decoration:none;white-space:nowrap;flex-shrink:0}
 .userbar a:hover,.userbar button:hover{background:rgba(255,255,255,.22)}
+
+/* Mobile: take userbar out of absolute flow so it never overlaps "SMVS OCR" title.
+   It becomes its own row, right-aligned, above the logo+title row. */
+@media (max-width:760px){
+  .userbar{
+    position:relative;top:0;right:0;
+    width:100%;max-width:100%;
+    justify-content:flex-end;
+    padding:10px 18px 0;
+    gap:8px;
+  }
+  .userbar .uname{font-size:12px;max-width:110px}
+  .userbar a,.userbar button{font-size:11.5px;padding:5px 10px}
+}
+@media (max-width:400px){
+  .userbar .uname{max-width:80px}
+  .userbar a,.userbar button{padding:4px 8px;font-size:11px}
+  .brand-name{font-size:22px}
+  .brand-logo{width:42px;height:42px}
+  .hero-bar{gap:10px;padding:12px 14px 4px}
+  .hero-tag{font-size:12px}
+}
 
 /* ===== col-output-wrap: Action card (step 3) + Output card (step 4) stacked ===== */
 .col-output-wrap{display:flex;flex-direction:column;gap:16px;min-width:0}
