@@ -1255,7 +1255,7 @@ def _link_result_page(title, message, success):
 
 
 @app.get("/api/approve-user")
-async def api_approve_user(token: str = ""):
+async def api_approve_user(request: Request, token: str = ""):
     pending = db.pending_user_get(token)
     if not pending:
         return HTMLResponse(_link_result_page("Invalid Link", "This approval link is invalid.", False), status_code=400)
@@ -1274,7 +1274,8 @@ async def api_approve_user(token: str = ""):
         }
         _save_users(users)
     db.pending_user_delete(pending["username"])   # approved → moves to real users, pending record removed
-    emailer.send_approval_notification(pending["email"], pending["first_name"], pending["username"])
+    login_url = str(request.base_url).rstrip("/") + "/login"
+    emailer.send_approval_notification(pending["email"], pending["first_name"], pending["username"], login_url)
     return HTMLResponse(_link_result_page("✅ User Approved!",
         "The user has been notified via email.", True))
 
@@ -1320,8 +1321,10 @@ async def reject_user_page(token: str = ""):
         body:JSON.stringify({{token:"{token}",reason}})}});
       const d=await r.json();
       msg.style.display="block";
-      if(r.ok&&d.ok){{msg.style.background="#e3f6ea";msg.style.color="#1e8449";msg.textContent="User rejected. Notification sent.";
-        document.getElementById("btn").disabled=true;}}
+      if(r.ok&&d.ok){{msg.style.background="#e3f6ea";msg.style.color="#1e8449";
+        msg.textContent="User rejected. Notification sent. This window will close in 5 seconds…";
+        document.getElementById("btn").disabled=true;
+        setTimeout(()=>{{ window.open('','_self'); window.close(); location.href='about:blank'; }},5000);}}
       else{{msg.style.background="#fbe1de";msg.style.color="#c0392b";msg.textContent=d.error||"Error";}}
     }};
     </script></body></html>"""
@@ -1346,7 +1349,7 @@ async def api_reject_user_email(payload: dict):
 
 
 @app.post("/api/admin/users/approve")
-async def admin_approve_user(payload: dict):
+async def admin_approve_user(request: Request, payload: dict):
     username = str(payload.get("username", "")).strip()
     pending = db.pending_user_get_by_name(username)
     if not pending or pending.get("status") != "pending":
@@ -1359,7 +1362,8 @@ async def admin_approve_user(payload: dict):
     }
     _save_users(users)
     db.pending_user_delete(username)
-    emailer.send_approval_notification(pending["email"], pending["first_name"], username)
+    login_url = str(request.base_url).rstrip("/") + "/login"
+    emailer.send_approval_notification(pending["email"], pending["first_name"], username, login_url)
     return {"ok": True}
 
 

@@ -171,10 +171,11 @@ async function loadFonts(){
   let d; try{ d=await (await fetch("/api/admin/fonts")).json(); }catch{ wrap.innerHTML='<div class="empty">Failed to load.</div>'; return; }
   const fs=d.fonts||[];
   if(!fs.length){ wrap.innerHTML='<div class="empty">No uploaded fonts yet.</div>'; return; }
-  let h='<table><thead><tr><th>Font Name</th><th>File</th><th></th></tr></thead><tbody>';
-  fs.forEach(f=>{ h+=`<tr><td>${esc(f.name)}</td><td class="muted">${esc(f.file)}</td><td style="text-align:right"><button class="mini-danger" data-del-font="${esc(f.file)}">Delete</button></td></tr>`; });
-  h+='</tbody></table>'; wrap.innerHTML=h;
-  wrap.querySelectorAll("[data-del-font]").forEach(b=>b.onclick=()=>deleteFont(b.getAttribute("data-del-font")));
+  wrap.innerHTML='<div id="fontsTableWrap"></div>';
+  const rows=fs.map(f=>`<tr><td>${esc(f.name)}</td><td class="muted">${esc(f.file)}</td><td style="text-align:right"><button class="mini-danger" data-del-font="${esc(f.file)}">Delete</button></td></tr>`);
+  const header=`<tr><th>Font Name</th><th>File</th><th style="text-align:right">Action</th></tr>`;
+  renderPaginatedTable("fontsTableWrap", rows, header, "fonts", {defaultSize:10, emptyMsg:"No uploaded fonts yet.", noSort:[2],
+    onBind:(el)=>{ el.querySelectorAll("[data-del-font]").forEach(b=>b.onclick=()=>deleteFont(b.getAttribute("data-del-font"))); }});
 }
 async function deleteFont(file){
   if(!confirm(`Delete font "${file}"?`)) return;
@@ -753,13 +754,24 @@ function renderPaginatedTable(containerId, rowsHtmlArr, headerHtml, key, opts){
   opts = opts || {};
   const defSize = opts.defaultSize || 10;
   const tableClass = opts.tableClass || "";
-  if(!_pgState[key]) _pgState[key] = {page:1, size:defSize, sortCol:null, sortDir:1};
+  if(!_pgState[key]) _pgState[key] = {page:1, size:defSize, sortCol:null, sortDir:1, filter:""};
   const st = _pgState[key];
+  if(st.filter===undefined) st.filter="";
   const el = document.getElementById(containerId);
   if(!el) return;
 
-  // Apply sort if a column is selected
+  // Apply text filter across all cells
   let rows = rowsHtmlArr.slice();
+  if(st.filter){
+    const q=st.filter.toLowerCase();
+    rows = rows.filter(r=>{
+      const tmp=document.createElement("tr");
+      tmp.innerHTML=r.replace(/^<tr[^>]*>/,"").replace(/<\/tr>\s*$/,"");
+      return (tmp.textContent||"").toLowerCase().includes(q);
+    });
+  }
+
+  // Apply sort if a column is selected
   if(st.sortCol!=null){
     rows.sort((a,b)=>{
       const av=_cellText(a,st.sortCol), bv=_cellText(b,st.sortCol);
@@ -771,12 +783,19 @@ function renderPaginatedTable(containerId, rowsHtmlArr, headerHtml, key, opts){
   }
 
   const total = rows.length;
-  if(total===0){ el.innerHTML = `<div class="empty">${opts.emptyMsg||"No records."}</div>`; return; }
+  // Filter box (always shown if there are records or an active filter)
+  const filterBox = (opts.noFilter) ? "" :
+    `<div style="margin-bottom:12px"><input type="text" data-tblfilter placeholder="🔍 Filter table…"
+      value="${esc(st.filter||"")}" style="width:100%;max-width:320px;box-sizing:border-box;padding:8px 12px;
+      border:1px solid var(--line);border-radius:9px;font:inherit;font-size:13px" /></div>`;
+
+  if(rowsHtmlArr.length===0){ el.innerHTML = `<div class="empty">${opts.emptyMsg||"No records."}</div>`; return; }
+
   const pages = Math.max(1, Math.ceil(total/st.size));
   if(st.page>pages) st.page=pages;
   if(st.page<1) st.page=1;
-  const start = (st.page-1)*st.size;
-  const pageRows = rows.slice(start, start+st.size).join("");
+  const startIdx = (st.page-1)*st.size;
+  const pageRows = rows.slice(startIdx, startIdx+st.size).join("");
 
   // Make header cells sortable (add arrow indicators)
   const tmpH=document.createElement("thead"); tmpH.innerHTML=headerHtml;
@@ -790,9 +809,20 @@ function renderPaginatedTable(containerId, rowsHtmlArr, headerHtml, key, opts){
   });
   const headerFinal=tmpH.innerHTML;
 
-  el.innerHTML =
-    `<div style="overflow-x:auto"><table class="${tableClass}"><thead>${headerFinal}</thead><tbody>${pageRows}</tbody></table></div>`
-    + paginationBar(total, st.page, st.size, key);
+  const tableBody = total===0
+    ? `<div class="empty">No rows match your filter.</div>`
+    : `<div style="overflow-x:auto"><table class="${tableClass}"><thead>${headerFinal}</thead><tbody>${pageRows}</tbody></table></div>`
+      + paginationBar(total, st.page, st.size, key);
+
+  el.innerHTML = filterBox + tableBody;
+
+  // Filter input handler
+  const fb=el.querySelector("[data-tblfilter]");
+  if(fb){
+    fb.oninput=()=>{ st.filter=fb.value; st.page=1; renderPaginatedTable(containerId, rowsHtmlArr, headerHtml, key, opts);
+      const nf=document.getElementById(containerId).querySelector("[data-tblfilter]");
+      if(nf){ nf.focus(); nf.setSelectionRange(nf.value.length,nf.value.length); } };
+  }
   // Sort click handlers
   el.querySelectorAll("th[data-sortcol]").forEach(th=>{
     th.onclick=()=>{
@@ -828,10 +858,20 @@ function openRejectModal(username){
       const r=await fetch("/api/admin/users/reject",{method:"POST",headers:{"Content-Type":"application/json"},
         body:JSON.stringify({username:_rejectUsername,reason})});
       const d=await r.json();
-      if(r.ok&&d.ok){ toast("User rejected & notified"); modal.classList.remove("open"); loadUsers(); }
-      else { err.textContent=d.error||"Failed."; err.style.display="block"; }
-    }catch{ err.textContent="Network error."; err.style.display="block"; }
-    $("#rejectConfirmBtn").disabled=false;
+      if(r.ok&&d.ok){
+        err.style.display="block"; err.className="modal-ok";
+        err.textContent="✓ User rejected & notified. Closing in 5 seconds…";
+        loadUsers();
+        setTimeout(()=>{
+          modal.classList.remove("open");
+          err.className="modal-err"; err.style.display="none";
+          $("#rejectConfirmBtn").disabled=false;
+        },5000);
+      } else {
+        err.className="modal-err"; err.textContent=d.error||"Failed."; err.style.display="block";
+        $("#rejectConfirmBtn").disabled=false;
+      }
+    }catch{ err.className="modal-err"; err.textContent="Network error."; err.style.display="block"; $("#rejectConfirmBtn").disabled=false; }
   };
 })();
 // Reason view modal close

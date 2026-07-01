@@ -129,7 +129,7 @@ def send_admin_approval_request(admin_email, first_name, last_name, username, em
     send_async(admin_email, f"SMVS OCR — New Signup: {username}", _wrap(body))
 
 
-def send_approval_notification(to, first_name, username):
+def send_approval_notification(to, first_name, username, login_url="/login"):
     body = f"""
 <h2 style="margin:0 0 8px;font-size:20px;color:#2c2c4a">Your Account is Approved! 🎉</h2>
 <p style="color:#555;margin:0 0 20px">Great news, <b>{first_name}</b>! Your SMVS OCR account
@@ -138,7 +138,7 @@ has been approved by the administrator.</p>
   <div style="font-size:13px;color:#888">Username</div>
   <div style="font-size:16px;font-weight:600;color:#1e8449">{username}</div>
 </div>
-<a href="/login" style="display:inline-block;background:linear-gradient(135deg,#1e8449,#27ae60);
+<a href="{login_url}" style="display:inline-block;background:linear-gradient(135deg,#1e8449,#27ae60);
   color:#fff;text-decoration:none;padding:14px 28px;border-radius:10px;font-weight:700;font-size:15px">
   🚀 Login Now
 </a>
@@ -160,7 +160,7 @@ could not be approved at this time.</p>
 <p style="color:#888;font-size:13px;margin:0">If you believe this was a mistake or need more
 information, please contact the administrator directly.</p>
 """
-    send_async(to, "SMVS OCR — Account Request Update", _wrap(body))
+    send_async(to, "SMVS OCR — Account Request Rejected", _wrap(body))
 
 
 def send_password_reset(to, first_name, reset_link, username=""):
