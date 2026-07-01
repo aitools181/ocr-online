@@ -141,6 +141,27 @@
   #userModal .f input,#userModal .f select,#roleModal .f input{
     width:100%;box-sizing:border-box;padding:9px 11px;border:1px solid var(--line);border-radius:9px;font:inherit;font-size:13px}
   .perm-row:hover{background:#faf7f1}
+  /* User modal — signup-style */
+  .um-box{width:400px;max-width:92vw;max-height:88vh;overflow:auto}
+  .um-row{display:flex;gap:12px}
+  .um-row .um-field{flex:1}
+  .um-field{display:block;margin-bottom:16px}
+  .um-field > span{display:block;font-size:11.5px;font-weight:600;color:#777;margin-bottom:6px;
+    letter-spacing:.03em;text-transform:uppercase}
+  .um-field .req{color:#e74c3c;margin-left:2px;font-style:normal}
+  .um-field input,.um-field select{width:100%;box-sizing:border-box;padding:10px 12px;
+    border:1.5px solid #e8dfc8;border-radius:9px;font:inherit;font-size:14px;background:#faf7f2;transition:.15s}
+  .um-field input:focus,.um-field select:focus{border-color:var(--saffron);outline:none;background:#fff;
+    box-shadow:0 0 0 3px rgba(214,131,21,.12)}
+  .um-hint{font-size:12px;margin-top:6px;min-height:16px;font-weight:600}
+  /* Sub-tabs (within a main tab) */
+  .subtab-nav{display:flex;gap:4px;flex-wrap:wrap;margin:0 0 20px;border-bottom:2px solid var(--line);padding-bottom:0}
+  .subtab-nav button{border:none;background:transparent;font:inherit;font-size:13px;font-weight:600;
+    color:var(--muted);padding:10px 16px;cursor:pointer;transition:.15s;border-bottom:2px solid transparent;
+    margin-bottom:-2px;white-space:nowrap}
+  .subtab-nav button:hover{color:var(--saffron2)}
+  .subtab-nav button.active{color:var(--saffron2);border-bottom-color:var(--saffron)}
+  .subtab-panel[hidden]{display:none}
   /* Cloud Storage modal */
   .cloud-status{display:flex;align-items:center;gap:10px;background:#faf7f1;border-radius:10px;
     padding:10px 14px;font-size:13px}
@@ -208,32 +229,35 @@
       </div>
     </div>
 
-    <div class="dash-section">
-      <div class="dash-section-head">📦 Job Overview</div>
+    <div class="subtab-nav" data-subnav="dashboard">
+      <button data-subtab="overview" class="active" type="button">📦 Job Overview</button>
+      <button data-subtab="live" type="button">🟢 Live Activity</button>
+      <button data-subtab="reports" type="button">👥 User Reports</button>
+      <button data-subtab="security" type="button">🔐 Security &amp; Access</button>
+      <button data-subtab="search" type="button">🔍 Job Search</button>
+    </div>
+
+    <div class="subtab-panel" data-subpanel="overview">
       <div id="dashSummary" class="dash-cards"></div>
     </div>
 
-    <div class="dash-section">
-      <div class="dash-section-head">🟢 Live Activity</div>
+    <div class="subtab-panel" data-subpanel="live" hidden>
       <div id="dashLive" class="dash-live"></div>
     </div>
 
-    <div class="dash-section">
-      <div class="dash-section-head">👥 User Reports</div>
+    <div class="subtab-panel" data-subpanel="reports" hidden>
       <h3 class="dash-h3">User-wise Summary</h3>
       <div id="dashUserwise"></div>
       <h3 class="dash-h3" style="margin-top:20px">⚠️ Failed / Pending Uploads</h3>
       <div id="dashFailed"></div>
     </div>
 
-    <div class="dash-section">
-      <div class="dash-section-head">🔐 Security &amp; Access</div>
+    <div class="subtab-panel" data-subpanel="security" hidden>
       <h3 class="dash-h3">Recent Logins</h3>
       <div id="dashLogins"></div>
     </div>
 
-    <div class="dash-section">
-      <div class="dash-section-head">🔍 Job Search</div>
+    <div class="subtab-panel" data-subpanel="search" hidden>
       <div class="bar-actions">
         <input id="jobSearch" type="text" placeholder="Filename, username..." />
         <select id="jobStatusFilter">
@@ -303,49 +327,59 @@
       <button id="cloudToggleBtn" type="button" class="cloud-toggle-btn" hidden>Deactivate</button>
     </div>
 
-    <div class="f">
-      <span>Provider</span>
-      <select id="cloudProvider">
-        <option value="none">None (server-local only)</option>
-        <option value="google_drive">Google Drive</option>
-        <option value="onedrive">OneDrive / SharePoint</option>
-      </select>
+    <div class="subtab-nav" data-subnav="cloud">
+      <button data-subtab="settings" class="active" type="button">⚙️ Connection Settings</button>
+      <button data-subtab="alljobs" type="button">📋 All Jobs</button>
+      <button data-subtab="pending" type="button">⚠️ Pending / Failed</button>
     </div>
 
-    <div id="cloudFieldsGoogle" class="cloud-fields" hidden>
-      <div class="f"><span>Root Folder ID (Shared Drive)</span>
-        <input id="gdRootFolderId" type="text" placeholder="e.g. 1AbCdEfGhIjKlMnOpQ" /></div>
-      <div class="f"><span>Service Account Client Email</span>
-        <input id="gdClientEmail" type="text" placeholder="smvs-ocr@project-id.iam.gserviceaccount.com" /></div>
-      <div class="f"><span>Project ID</span>
-        <input id="gdProjectId" type="text" placeholder="your-gcp-project-id" /></div>
-      <div class="f"><span>Private Key (paste from JSON — begins with -----BEGIN PRIVATE KEY-----)</span>
-        <textarea id="gdPrivateKey" rows="4" placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"
-          style="width:100%;box-sizing:border-box;padding:8px 10px;border:1.5px solid var(--line);border-radius:9px;font:ui-monospace,monospace;font-size:12px;resize:vertical"></textarea></div>
-      <div class="muted" id="gdExistingNote" style="font-size:11.5px;margin-top:-4px"></div>
+    <div class="subtab-panel" data-subpanel="settings">
+      <div class="f">
+        <span>Provider</span>
+        <select id="cloudProvider">
+          <option value="none">None (server-local only)</option>
+          <option value="google_drive">Google Drive</option>
+          <option value="onedrive">OneDrive / SharePoint</option>
+        </select>
+      </div>
+
+      <div id="cloudFieldsGoogle" class="cloud-fields" hidden>
+        <div class="f"><span>Root Folder ID (Shared Drive)</span>
+          <input id="gdRootFolderId" type="text" placeholder="e.g. 1AbCdEfGhIjKlMnOpQ" /></div>
+        <div class="f"><span>Service Account Client Email</span>
+          <input id="gdClientEmail" type="text" placeholder="smvs-ocr@project-id.iam.gserviceaccount.com" /></div>
+        <div class="f"><span>Project ID</span>
+          <input id="gdProjectId" type="text" placeholder="your-gcp-project-id" /></div>
+        <div class="f"><span>Private Key (paste from JSON — begins with -----BEGIN PRIVATE KEY-----)</span>
+          <textarea id="gdPrivateKey" rows="4" placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"
+            style="width:100%;box-sizing:border-box;padding:8px 10px;border:1.5px solid var(--line);border-radius:9px;font:ui-monospace,monospace;font-size:12px;resize:vertical"></textarea></div>
+        <div class="muted" id="gdExistingNote" style="font-size:11.5px;margin-top:-4px"></div>
+      </div>
+
+      <div id="cloudFieldsOneDrive" class="cloud-fields" hidden>
+        <div class="f"><span>Azure Tenant ID</span><input id="odTenantId" type="text" /></div>
+        <div class="f"><span>App Client ID</span><input id="odClientId" type="text" /></div>
+        <div class="f"><span>Client Secret</span><input id="odClientSecret" type="password" placeholder="Leave blank to keep existing" /></div>
+        <div class="f"><span>Drive ID (SharePoint/OneDrive)</span><input id="odDriveId" type="text" /></div>
+        <div class="f"><span>Root Path</span><input id="odRootPath" type="text" placeholder="/SMVS-OCR" /></div>
+      </div>
+
+      <div id="cloudConfigErr" class="modal-err" style="display:none"></div>
+      <div id="cloudConfigOk" class="modal-ok" style="display:none"></div>
+
+      <div class="modal-actions" style="justify-content:flex-start">
+        <button class="mini-reset" id="cloudTestBtn" type="button">Test Connection</button>
+        <button class="add-btn" id="cloudSaveBtn" type="button">Save &amp; Connect</button>
+      </div>
     </div>
 
-    <div id="cloudFieldsOneDrive" class="cloud-fields" hidden>
-      <div class="f"><span>Azure Tenant ID</span><input id="odTenantId" type="text" /></div>
-      <div class="f"><span>App Client ID</span><input id="odClientId" type="text" /></div>
-      <div class="f"><span>Client Secret</span><input id="odClientSecret" type="password" placeholder="Leave blank to keep existing" /></div>
-      <div class="f"><span>Drive ID (SharePoint/OneDrive)</span><input id="odDriveId" type="text" /></div>
-      <div class="f"><span>Root Path</span><input id="odRootPath" type="text" placeholder="/SMVS-OCR" /></div>
+    <div class="subtab-panel" data-subpanel="alljobs" hidden>
+      <div id="cloudAllJobsWrap"></div>
     </div>
 
-    <div id="cloudConfigErr" class="modal-err" style="display:none"></div>
-    <div id="cloudConfigOk" class="modal-ok" style="display:none"></div>
-
-    <div class="modal-actions" style="justify-content:flex-start">
-      <button class="mini-reset" id="cloudTestBtn" type="button">Test Connection</button>
-      <button class="add-btn" id="cloudSaveBtn" type="button">Save &amp; Connect</button>
+    <div class="subtab-panel" data-subpanel="pending" hidden>
+      <div id="cloudPendingWrap"></div>
     </div>
-
-    <h3 class="dash-h3" style="margin-top:24px">📋 All Jobs — Upload & Server Status</h3>
-    <div id="cloudAllJobsWrap"></div>
-
-    <h3 class="dash-h3" style="margin-top:24px">⚠️ Pending / Failed Uploads</h3>
-    <div id="cloudPendingWrap"></div>
   </div>
 
   <!-- Email Settings Tab -->
@@ -436,17 +470,20 @@
 
 <!-- Create/Edit User Modal (change-password style) -->
 <div class="modal-overlay" id="userModal">
-  <div class="modal-box" style="width:420px;max-height:88vh;overflow:auto">
+  <div class="modal-box um-box">
     <h3 id="userModalTitle">👤 Create User</h3>
     <div id="userModalErr" class="modal-err" style="display:none"></div>
-    <div class="f"><span>First Name <span style="color:#e74c3c">*</span></span><input id="umFname" type="text" /></div>
-    <div class="f"><span>Last Name <span style="color:#e74c3c">*</span></span><input id="umLname" type="text" /></div>
-    <div class="f"><span>Username <span style="color:#e74c3c">*</span> <span id="umUserHint" class="muted" style="font-weight:400"></span></span><input id="umUser" type="text" /></div>
-    <div class="f"><span>Email ID <span style="color:#e74c3c">*</span></span><input id="umEmail" type="email" /></div>
-    <div class="f" id="umPassRow"><span>Password <span style="color:#e74c3c">*</span></span><input id="umPass" type="text" placeholder="min 4 chars" /></div>
-    <div class="f"><span>Role</span>
-      <select id="umRole"></select>
+    <div class="um-row">
+      <label class="um-field"><span>First Name<i class="req">*</i></span><input id="umFname" type="text" /></label>
+      <label class="um-field"><span>Last Name<i class="req">*</i></span><input id="umLname" type="text" /></label>
     </div>
+    <label class="um-field"><span>Username<i class="req">*</i></span>
+      <input id="umUser" type="text" />
+      <div id="umUserHint" class="um-hint"></div>
+    </label>
+    <label class="um-field"><span>Email ID<i class="req">*</i></span><input id="umEmail" type="email" /></label>
+    <label class="um-field" id="umPassRow"><span>Password<i class="req">*</i></span><input id="umPass" type="text" placeholder="min 4 chars" /></label>
+    <label class="um-field"><span>Role</span><select id="umRole"></select></label>
     <div class="pw-modal-actions">
       <button type="button" id="umCancelBtn">Cancel</button>
       <button type="button" id="umSaveBtn">Create User</button>

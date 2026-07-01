@@ -279,18 +279,12 @@ $("#delBtn").onclick=async()=>{
     toast(`Deleted ${d.deleted.length} job(s)`); loadJobs();
   }catch{ toast("Network error","err"); }
 };
-$("#refreshBtn").onclick=loadJobs;
-$("#addUserBtn").onclick=addUser;
-$("#logoutBtn").onclick=async()=>{ try{ await fetch("/api/logout",{method:"POST"}); }catch{} window.location.href="/login"; };
+$("#refreshBtn") && ($("#refreshBtn").onclick=loadJobs);
+$("#addUserBtn") && ($("#addUserBtn").onclick=addUser);
+$("#logoutBtn") && ($("#logoutBtn").onclick=async()=>{ try{ await fetch("/api/logout",{method:"POST"}); }catch{} window.location.href="/login"; });
 
-loadUsers(); loadFonts(); loadJobs();
+// Tab data loads lazily via the tab controller — no eager load here.
 
-// Version badge
-(function(){
-  const el = document.getElementById("versionBadge");
-  if(!el) return;
-  el.textContent = "v2.3  ·  30 Jun 2026";
-})();
 
 // ===================== Dashboard (Step 5) =====================
 function fmtSecD(s){ s=Math.round(s||0); if(s<60) return s+"s"; const m=Math.floor(s/60); if(m<60) return m+"m "+(s%60)+"s"; const h=Math.floor(m/60); return h+"h "+(m%60)+"m"; }
@@ -333,10 +327,9 @@ async function loadDashUserwise(){
        <td class="muted">${esc(u.ip||"—")}</td><td class="muted">${esc(u.location||"—")}</td>
        <td>${u.total}</td><td>${u.pages_done||0}</td>
        <td>${u.failed>0?`<span class="status-pill status-error">${u.failed}</span>`:u.failed}</td>
-       <td>${u.pages_failed>0?`<span class="status-pill status-error">${u.pages_failed}</span>`:(u.pages_failed||0)}</td></tr>`).join("");
-    $("#dashUserwise").innerHTML = d.users && d.users.length
-      ? `<div style="overflow-x:auto"><table class="tbl-center"><thead><tr><th>Sr No.</th><th>User</th><th>IP</th><th>Location</th><th>Total Job Upload</th><th>Total Pages Converted</th><th>Total Job Failed</th><th>Total Pages Failed</th></tr></thead><tbody>${rows}</tbody></table></div>`
-      : `<div class="empty">No job data yet.</div>`;
+       <td>${u.pages_failed>0?`<span class="status-pill status-error">${u.pages_failed}</span>`:(u.pages_failed||0)}</td></tr>`);
+    const header=`<tr><th>Sr No.</th><th>User</th><th>IP</th><th>Location</th><th>Total Job Upload</th><th>Total Pages Converted</th><th>Total Job Failed</th><th>Total Pages Failed</th></tr>`;
+    renderPaginatedTable("dashUserwise", rows, header, "userwise", {defaultSize:10, emptyMsg:"No job data yet.", tableClass:"tbl-center"});
   }catch{ $("#dashUserwise").innerHTML = `<div class="empty">Could not load.</div>`; }
 }
 
@@ -368,16 +361,15 @@ async function loadDashFailed(){
 
 async function loadDashLogins(){
   try{
-    const d = await (await fetch("/api/admin/dashboard/logins?limit=50")).json();
+    const d = await (await fetch("/api/admin/dashboard/logins?limit=500")).json();
     const rows = (d.logins||[]).map(l=>
       `<tr><td>${esc(l.username||"—")}</td><td>${esc(l.ip||"—")}</td>
        <td class="muted" style="max-width:200px">${esc((l.device||"").slice(0,60))}</td>
        <td>${esc(l.location||"—")}</td>
        <td>${l.success?'<span class="status-pill status-completed">success</span>':'<span class="status-pill status-error">failed</span>'}</td>
-       <td class="muted">${fmtDate(new Date(l.timestamp*1000).toISOString())}</td></tr>`).join("");
-    $("#dashLogins").innerHTML = d.logins && d.logins.length
-      ? `<table><thead><tr><th>User</th><th>IP</th><th>Device</th><th>Location</th><th>Status</th><th>Time</th></tr></thead><tbody>${rows}</tbody></table>`
-      : `<div class="empty">No login history yet.</div>`;
+       <td class="muted">${fmtDate(new Date(l.timestamp*1000).toISOString())}</td></tr>`);
+    const header=`<tr><th>User</th><th>IP</th><th>Device</th><th>Location</th><th>Status</th><th>Time</th></tr>`;
+    renderPaginatedTable("dashLogins", rows, header, "logins", {defaultSize:10, emptyMsg:"No login history yet."});
   }catch{ $("#dashLogins").innerHTML = `<div class="empty">Could not load.</div>`; }
 }
 
@@ -389,15 +381,15 @@ async function loadDashJobs(){
   if(status) params.set("status", status);
   try{
     const d = await (await fetch(`/api/admin/dashboard/jobs?${params.toString()}`)).json();
+    _pgState["jobsearch"] = {page:1, size:(_pgState["jobsearch"]?_pgState["jobsearch"].size:10)};
     const rows = (d.jobs||[]).map(j=>
       `<tr><td><span class="jid">${esc(j.job_id)}</span><span class="fn">${esc(j.original_filename||"")}</span></td>
        <td>${esc(j.username)}</td><td>${statusPill(j.status)}</td>
        <td>${j.pages||0}</td><td>${j.duration_sec?fmtSecD(j.duration_sec):"—"}</td>
        <td class="muted">${esc(j.cloud_provider||"—")}</td>
-       <td class="muted">${fmtDate(new Date(j.created_at*1000).toISOString())}</td></tr>`).join("");
-    $("#dashJobs").innerHTML = d.jobs && d.jobs.length
-      ? `<table><thead><tr><th>File</th><th>User</th><th>Status</th><th>Pages</th><th>Duration</th><th>Cloud</th><th>Created</th></tr></thead><tbody>${rows}</tbody></table>`
-      : `<div class="empty">No matching jobs.</div>`;
+       <td class="muted">${fmtDate(new Date(j.created_at*1000).toISOString())}</td></tr>`);
+    const header=`<tr><th>File</th><th>User</th><th>Status</th><th>Pages</th><th>Duration</th><th>Cloud</th><th>Created</th></tr>`;
+    renderPaginatedTable("dashJobs", rows, header, "jobsearch", {defaultSize:10, emptyMsg:"No matching jobs."});
   }catch{ $("#dashJobs").innerHTML = `<div class="empty">Could not load.</div>`; }
 }
 
@@ -517,22 +509,23 @@ if($("#dashCard")){
         `<tr><td><span class="jid">${esc(j.job_id)}</span><span class="fn">${esc(j.original_filename||"")}</span></td>
          <td>${esc(j.username)}</td><td>${j.upload_attempts||0}/${df.max_attempts}</td>
          <td class="muted">${esc((j.error_message||"").slice(0,60))}</td>
-         <td><button class="mini-reset" data-jid="${esc(j.job_id)}">Retry</button></td></tr>`).join("");
-      $("#cloudPendingWrap").innerHTML = df.jobs && df.jobs.length
-        ? `<table><thead><tr><th>File</th><th>User</th><th>Attempts</th><th>Error</th><th></th></tr></thead><tbody>${failRows}</tbody></table>`
-        : `<div class="empty">No pending/failed uploads. 🎉</div>`;
-      $("#cloudPendingWrap").querySelectorAll("[data-jid]").forEach(btn=>{
-        btn.onclick=async()=>{
-          btn.disabled=true; btn.textContent="…";
-          try{
-            const r=await fetch("/api/admin/dashboard/retry-upload",{method:"POST",
-              headers:{"Content-Type":"application/json"}, body:JSON.stringify({job_id:btn.dataset.jid})});
-            const dd=await r.json();
-            if(r.ok&&dd.ok){ toast("Uploaded successfully"); loadCloudPending(); loadCloudStatus(); loadCloudAllJobs(); }
-            else { toast(dd.error||"Retry failed","err"); btn.disabled=false; btn.textContent="Retry"; }
-          }catch{ toast("Network error","err"); btn.disabled=false; btn.textContent="Retry"; }
-        };
-      });
+         <td><button class="mini-reset" data-jid="${esc(j.job_id)}">Retry</button></td></tr>`);
+      const header=`<tr><th>File</th><th>User</th><th>Attempts</th><th>Error</th><th></th></tr>`;
+      const bindRetry=(el)=>{
+        el.querySelectorAll("[data-jid]").forEach(btn=>{
+          btn.onclick=async()=>{
+            btn.disabled=true; btn.textContent="…";
+            try{
+              const r=await fetch("/api/admin/dashboard/retry-upload",{method:"POST",
+                headers:{"Content-Type":"application/json"}, body:JSON.stringify({job_id:btn.dataset.jid})});
+              const dd=await r.json();
+              if(r.ok&&dd.ok){ toast("Uploaded successfully"); loadCloudPending(); loadCloudStatus(); loadCloudAllJobs(); }
+              else { toast(dd.error||"Retry failed","err"); btn.disabled=false; btn.textContent="Retry"; }
+            }catch{ toast("Network error","err"); btn.disabled=false; btn.textContent="Retry"; }
+          };
+        });
+      };
+      renderPaginatedTable("cloudPendingWrap", failRows, header, "cloudpending", {defaultSize:10, emptyMsg:"No pending/failed uploads. 🎉", onBind:bindRetry});
     }catch{ $("#cloudPendingWrap").innerHTML = `<div class="empty">Could not load.</div>`; }
   }
 
@@ -562,13 +555,9 @@ if($("#dashCard")){
           <td>${serverStatus}</td>
           <td>${link}</td>
         </tr>`;
-      }).join("");
-      $("#cloudAllJobsWrap").innerHTML = d.jobs && d.jobs.length
-        ? `<div style="overflow-x:auto"><table><thead><tr>
-            <th>#</th><th>User</th><th>Job ID</th><th>Uploaded File</th>
-            <th>Output File</th><th>Upload Status</th><th>Server Status</th><th>Link</th>
-          </tr></thead><tbody>${rows}</tbody></table></div>`
-        : `<div class="empty">No jobs yet.</div>`;
+      });
+      const header=`<tr><th>#</th><th>User</th><th>Job ID</th><th>Uploaded File</th><th>Output File</th><th>Upload Status</th><th>Server Status</th><th>Link</th></tr>`;
+      renderPaginatedTable("cloudAllJobsWrap", rows, header, "cloudalljobs", {defaultSize:10, emptyMsg:"No jobs yet."});
     }catch{ $("#cloudAllJobsWrap").innerHTML=`<div class="empty">Could not load.</div>`; }
   }
 
@@ -577,6 +566,9 @@ if($("#dashCard")){
     errEl.style.display="none"; okEl.style.display="none";
     loadCloudStatus(); loadCloudPending(); loadCloudAllJobs();
   };
+  // Expose for sub-tab controller (lazy-load on sub-tab switch)
+  window.loadCloudAllJobs = loadCloudAllJobs;
+  window.loadCloudPending = loadCloudPending;
 
   saveBtn.onclick=async()=>{
     errEl.style.display="none"; okEl.style.display="none";
@@ -640,7 +632,7 @@ async function loadFeedback(){
     if(!list.length){ wrap.innerHTML=filterHtml+'<div class="empty">No feedback yet.</div>';
       const fs=$("#fbFilterSel"); if(fs) fs.onchange=()=>{_fbFilter=fs.value;loadFeedback();};
       return; }
-    const rows=list.map(f=>{
+    const rowsArr=list.map(f=>{
       const typePill=`<span class="status-pill status-queued">${esc(f.type)}</span>`;
       const statusPill=f.status==='new'?`<span class="status-pill status-error">New</span>`:
         `<span class="status-pill" style="background:#eee;color:#888">Read</span>`;
@@ -659,40 +651,42 @@ async function loadFeedback(){
         <td class="muted" style="white-space:nowrap">${fmtDate(new Date(f.created_at*1000).toISOString())}</td>
         <td style="white-space:nowrap"><button class="mini-reset" data-fb-view="${f.id}">View</button>${actionBtn}</td>
       </tr>`;
-    }).join("");
-    wrap.innerHTML=filterHtml+`<div style="overflow-x:auto"><table><thead><tr><th>From</th><th>User</th><th>Type</th><th>Message</th><th>Rating</th><th>Status</th><th>Date</th><th>Action</th></tr></thead><tbody>${rows}</tbody></table></div>`;
-    // Filter change
-    const fs=$("#fbFilterSel"); if(fs) fs.onchange=()=>{_fbFilter=fs.value;loadFeedback();};
-    // Themed view popup
-    wrap.querySelectorAll("[data-fb-view]").forEach(btn=>{
-      btn.onclick=()=>{
-        const fb=list.find(f=>f.id==btn.dataset.fbView); if(!fb) return;
-        const stars=fb.rating?'★'.repeat(fb.rating)+'☆'.repeat(5-fb.rating):'—';
-        $("#fbViewBody").innerHTML=`
-          <div style="background:#faf7f1;border-radius:10px;padding:14px 16px;margin-bottom:14px">
-            <div style="display:grid;grid-template-columns:90px 1fr;gap:8px 12px;font-size:13px">
-              <span style="color:#888">From</span><b>${esc(fb.name)}</b>
-              <span style="color:#888">Email</span><span>${esc(fb.email||'—')}</span>
-              <span style="color:#888">User</span><span>${fb.username?esc(fb.username):'guest'}</span>
-              <span style="color:#888">Type</span><span><span class="status-pill status-queued">${esc(fb.type)}</span></span>
-              <span style="color:#888">Rating</span><span style="color:#e8a020">${stars}</span>
-              <span style="color:#888">Date</span><span>${fmtDate(new Date(fb.created_at*1000).toISOString())}</span>
+    });
+    // filter above, paginated table below in its own container
+    wrap.innerHTML=filterHtml+`<div id="fbTableWrap"></div>`;
+    const fs=$("#fbFilterSel"); if(fs) fs.onchange=()=>{_fbFilter=fs.value;_pgState["feedback"]={page:1,size:(_pgState["feedback"]?_pgState["feedback"].size:10)};loadFeedback();};
+    const header=`<tr><th>From</th><th>User</th><th>Type</th><th>Message</th><th>Rating</th><th>Status</th><th>Date</th><th>Action</th></tr>`;
+    const bindFb=(el)=>{
+      el.querySelectorAll("[data-fb-view]").forEach(btn=>{
+        btn.onclick=()=>{
+          const fb=list.find(f=>f.id==btn.dataset.fbView); if(!fb) return;
+          const stars=fb.rating?'★'.repeat(fb.rating)+'☆'.repeat(5-fb.rating):'—';
+          $("#fbViewBody").innerHTML=`
+            <div style="background:#faf7f1;border-radius:10px;padding:14px 16px;margin-bottom:14px">
+              <div style="display:grid;grid-template-columns:90px 1fr;gap:8px 12px;font-size:13px">
+                <span style="color:#888">From</span><b>${esc(fb.name)}</b>
+                <span style="color:#888">Email</span><span>${esc(fb.email||'—')}</span>
+                <span style="color:#888">User</span><span>${fb.username?esc(fb.username):'guest'}</span>
+                <span style="color:#888">Type</span><span><span class="status-pill status-queued">${esc(fb.type)}</span></span>
+                <span style="color:#888">Rating</span><span style="color:#e8a020">${stars}</span>
+                <span style="color:#888">Date</span><span>${fmtDate(new Date(fb.created_at*1000).toISOString())}</span>
+              </div>
             </div>
-          </div>
-          <div style="font-size:12px;color:#888;margin-bottom:6px">MESSAGE</div>
-          <div style="background:#fff;border-left:3px solid var(--saffron);border-radius:8px;padding:12px 14px;
-            font-size:14px;color:#333;line-height:1.5">${esc(fb.message)}</div>`;
-        $("#fbViewModal").classList.add("open");
-        if(fb.status==='new') fetch("/api/admin/feedback/read",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:fb.id})}).then(()=>loadFeedback());
-      };
-    });
-    // Action toggle
-    wrap.querySelectorAll("[data-fb-action]").forEach(btn=>{
-      btn.onclick=async()=>{
-        await fetch("/api/admin/feedback/action",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:parseInt(btn.dataset.fbAction)})});
-        loadFeedback();
-      };
-    });
+            <div style="font-size:12px;color:#888;margin-bottom:6px">MESSAGE</div>
+            <div style="background:#fff;border-left:3px solid var(--saffron);border-radius:8px;padding:12px 14px;
+              font-size:14px;color:#333;line-height:1.5">${esc(fb.message)}</div>`;
+          $("#fbViewModal").classList.add("open");
+          if(fb.status==='new') fetch("/api/admin/feedback/read",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:fb.id})}).then(()=>loadFeedback());
+        };
+      });
+      el.querySelectorAll("[data-fb-action]").forEach(btn=>{
+        btn.onclick=async()=>{
+          await fetch("/api/admin/feedback/action",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:parseInt(btn.dataset.fbAction)})});
+          loadFeedback();
+        };
+      });
+    };
+    renderPaginatedTable("fbTableWrap", rowsArr, header, "feedback", {defaultSize:10, emptyMsg:"No feedback yet.", onBind:bindFb});
   }catch{ wrap.innerHTML='<div class="empty">Could not load feedback.</div>'; }
 }
 // Feedback view modal close
@@ -732,6 +726,32 @@ function bindPagination(key, cb){
   if(next) next.onclick=()=>cb(curPage+1,parseInt(sizeSel.value));
 }
 
+// Generic client-side paginated table.
+// state = {page, size}; rowsHtmlArr = array of <tr>...</tr> strings; headerHtml = <tr><th>...</th></tr>
+// onBind(container) optional — re-attach row event handlers after each render.
+const _pgState = {};
+function renderPaginatedTable(containerId, rowsHtmlArr, headerHtml, key, opts){
+  opts = opts || {};
+  const defSize = opts.defaultSize || 10;
+  const tableClass = opts.tableClass || "";
+  if(!_pgState[key]) _pgState[key] = {page:1, size:defSize};
+  const st = _pgState[key];
+  const el = document.getElementById(containerId);
+  if(!el) return;
+  const total = rowsHtmlArr.length;
+  if(total===0){ el.innerHTML = `<div class="empty">${opts.emptyMsg||"No records."}</div>`; return; }
+  const pages = Math.max(1, Math.ceil(total/st.size));
+  if(st.page>pages) st.page=pages;
+  if(st.page<1) st.page=1;
+  const start = (st.page-1)*st.size;
+  const pageRows = rowsHtmlArr.slice(start, start+st.size).join("");
+  el.innerHTML =
+    `<div style="overflow-x:auto"><table class="${tableClass}"><thead>${headerHtml}</thead><tbody>${pageRows}</tbody></table></div>`
+    + paginationBar(total, st.page, st.size, key);
+  bindPagination(key, (p,s)=>{ st.page=p; st.size=s; renderPaginatedTable(containerId, rowsHtmlArr, headerHtml, key, opts); if(opts.onBind) opts.onBind(el); });
+  if(opts.onBind) opts.onBind(el);
+}
+
 // ===================== User Modal Handlers =====================
 (function(){
   const modal=$("#userModal");
@@ -748,7 +768,7 @@ function bindPagination(key, cb){
     if(v.length<3) return;
     ut=setTimeout(async()=>{
       try{ const d=await(await fetch(`/api/check-username?username=${encodeURIComponent(v)}`)).json();
-        hint.textContent=d.available?"✓ available":"✗ "+d.reason;
+        hint.textContent=d.available?(d.reason+" ✓"):(d.reason+" ✗");
         hint.style.color=d.available?"#1e8449":"#e74c3c";
       }catch{}
     },400);
@@ -865,6 +885,28 @@ function openRoleModal(name, roles){
     }catch{ err.textContent="Network error."; err.style.display="block"; }
     $("#rmSaveBtn").disabled=false;
   };
+})();
+
+// ===================== Sub-Tab Navigation (generic) =====================
+(function(){
+  document.querySelectorAll(".subtab-nav").forEach(nav=>{
+    const group=nav.dataset.subnav;
+    const btns=[...nav.querySelectorAll("button")];
+    const panels=[...document.querySelectorAll(`.subtab-panel[data-subpanel]`)]
+      .filter(p=>{ // only panels that belong to this nav's parent card
+        return nav.parentElement.contains(p);
+      });
+    btns.forEach(b=>b.onclick=()=>{
+      const st=b.dataset.subtab;
+      btns.forEach(x=>x.classList.toggle("active",x===b));
+      panels.forEach(p=>{ p.hidden = p.dataset.subpanel!==st; });
+      // Lazy-load cloud sub-tab data
+      if(group==="cloud"){
+        if(st==="alljobs" && typeof window.loadCloudAllJobs==="function") window.loadCloudAllJobs();
+        if(st==="pending" && typeof window.loadCloudPending==="function") window.loadCloudPending();
+      }
+    });
+  });
 })();
 
 // ===================== Tab Navigation =====================
