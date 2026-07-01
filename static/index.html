@@ -168,9 +168,35 @@
 </head>
 <body>
 
+<div id="pageLoader" class="page-loader"><div class="loader-spinner"></div></div>
+
+<div id="pwModalOverlay" class="pw-modal-overlay" hidden>
+  <div class="pw-modal-box">
+    <h3>🔑 Change Password</h3>
+    <p class="pw-user">User: <strong id="pwModalUser"></strong></p>
+    <div id="pwModalErr" class="pw-modal-err" hidden></div>
+    <div id="pwModalOk" class="pw-modal-ok" hidden></div>
+    <label><span>Current Password</span>
+      <input id="pwCurrent" type="password" autocomplete="current-password" placeholder="Your current password" />
+    </label>
+    <label><span>New Password</span>
+      <input id="pwNew" type="password" autocomplete="new-password" placeholder="Min 6 characters" />
+    </label>
+    <label><span>Confirm New Password</span>
+      <input id="pwConfirm" type="password" autocomplete="new-password" placeholder="Repeat new password" />
+    </label>
+    <div class="pw-modal-actions">
+      <button type="button" id="pwCancelBtn">Cancel</button>
+      <button type="button" id="pwSaveBtn">Save Password</button>
+    </div>
+  </div>
+</div>
+
 <header class="hero">
   <div class="userbar" id="userbar" hidden>
     <span class="uname" id="uname"></span>
+    <button id="changePwBtn" type="button">Change Password</button>
+    <button id="feedbackBtn" type="button">💬 Feedback</button>
     <a id="adminLink" href="/admin" hidden>Admin</a>
     <button id="logoutBtn" type="button">Logout</button>
   </div>
@@ -283,6 +309,7 @@
       </div>
     </div>
     <div id="fileTabs" class="file-tabs"></div>
+    <div id="queueBanner" class="queue-banner"></div>
     <div id="uploadProg" class="upload-prog" hidden></div>
     <div id="downloads" class="downloads"></div>
     <pre id="log" class="log" hidden></pre>
@@ -316,6 +343,44 @@
 </div>
 
 <div id="toasts" class="toasts" aria-live="polite"></div>
+
+<!-- Feedback Modal -->
+<div id="fbModalOverlay" class="pw-modal-overlay" hidden>
+  <div class="pw-modal-box" style="width:400px">
+    <h3>💬 Feedback / Suggestion</h3>
+    <div id="fbModalErr" class="pw-modal-err" hidden></div>
+    <div id="fbModalOk" class="pw-modal-ok" hidden></div>
+    <label><span>Type</span>
+      <select id="fbType" style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:9px;font:inherit;font-size:13px">
+        <option>Suggestion</option>
+        <option>Bug Report</option>
+        <option>Feature Request</option>
+        <option>General</option>
+        <option>Complaint</option>
+      </select>
+    </label>
+    <label><span>Your Name</span>
+      <input id="fbName" type="text" placeholder="Your name" />
+    </label>
+    <label><span>Email <span style="color:#e74c3c">*</span></span>
+      <input id="fbEmail" type="email" placeholder="your@email.com" />
+    </label>
+    <label><span>Rating</span>
+      <div id="fbStars" style="display:flex;gap:6px;margin-top:4px;font-size:24px;cursor:pointer">
+        <span data-star="1">☆</span><span data-star="2">☆</span><span data-star="3">☆</span>
+        <span data-star="4">☆</span><span data-star="5">☆</span>
+      </div>
+    </label>
+    <label><span>Message</span>
+      <textarea id="fbMessage" rows="4" placeholder="Write your feedback here… (min 10 chars)"
+        style="width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:9px;font:inherit;font-size:13px;box-sizing:border-box;resize:vertical"></textarea>
+    </label>
+    <div class="pw-modal-actions">
+      <button type="button" id="fbCancelBtn">Cancel</button>
+      <button type="button" id="fbSendBtn">Send Feedback</button>
+    </div>
+  </div>
+</div>
 
 <script src="/static/app.js"></script>
 </body>

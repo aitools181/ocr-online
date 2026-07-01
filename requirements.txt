@@ -5,3 +5,9 @@ pymupdf
 pytesseract
 pillow
 python-docx
+pyyaml
+# --- Cloud storage (Step 6) ---
+google-api-python-client
+google-auth
+msal
+requests

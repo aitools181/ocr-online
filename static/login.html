@@ -6,47 +6,294 @@
   <title>Sign In · SMVS OCR</title>
   <link rel="icon" href="/static/logo-white.png" />
   <link rel="stylesheet" href="/static/style.css" />
+  <style>
+    :root{--saffron:#d68315;--saffron2:#b8690f}
+    body{min-height:100vh;display:flex;align-items:center;justify-content:center;
+      background:linear-gradient(150deg,#1a1035 0%,#2c1b54 60%,#1a1035 100%);
+      font-family:'Inter',sans-serif;padding:20px;box-sizing:border-box}
+    .outer{width:100%;max-width:900px;display:flex;flex-direction:column;align-items:center;gap:20px}
+    .panels{display:flex;gap:0;background:#fff;border-radius:20px;
+      overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.4);width:100%;max-width:420px}
+    .panel{flex:1;padding:36px 32px;min-width:0}
+    .panel-head{display:flex;align-items:center;gap:12px;margin-bottom:24px}
+    .panel-head img{width:42px;height:42px;object-fit:contain}
+    .panel-title{font-family:'Sora',sans-serif;font-size:18px;font-weight:700;color:#2c2c4a}
+    .panel-sub{font-size:12px;color:#888;margin-top:2px}
+    .field-label{display:block;margin-bottom:18px}
+    .field-label span{display:block;font-size:11.5px;font-weight:600;color:#777;margin-bottom:8px;
+      letter-spacing:.03em;text-transform:uppercase}
+    .field-label span .req-star{display:inline}
+    .req-star{color:#e74c3c;margin-left:2px;font-weight:700}
+    .field-label input{width:100%;padding:10px 12px;border:1.5px solid #e8dfc8;border-radius:9px;
+      font:inherit;font-size:14px;box-sizing:border-box;background:#faf7f2;transition:.15s}
+    .field-label input:focus{border-color:var(--saffron);outline:none;background:#fff;
+      box-shadow:0 0 0 3px rgba(214,131,21,.12)}
+    .pw-wrap{position:relative;display:flex;align-items:center}
+    .pw-wrap input{flex:1;padding-right:40px}
+    .pw-eye{position:absolute;right:10px;background:none;border:none;cursor:pointer;
+      color:#aaa;font-size:16px;padding:4px;line-height:1;display:flex;align-items:center}
+    .pw-eye:hover{color:var(--saffron)}
+    .login-btn{width:100%;padding:13px;background:linear-gradient(135deg,#c97e1a,#e8a020);
+      color:#fff;border:none;border-radius:10px;font:inherit;font-size:15px;font-weight:700;
+      cursor:pointer;margin-top:6px;transition:.15s}
+    .login-btn:hover{filter:brightness(1.06);transform:translateY(-1px)}
+    .login-btn:disabled{opacity:.6;transform:none}
+    .login-err{background:#fbe1de;color:#c0392b;border-radius:8px;padding:9px 12px;
+      font-size:13px;margin-bottom:10px}
+    .tab-btns{display:flex;background:#f5f0e8;border-radius:10px;padding:4px;margin-bottom:20px;gap:3px}
+    .tab-btn{flex:1;border:none;background:transparent;font:inherit;font-size:13px;font-weight:600;
+      color:#999;padding:9px;border-radius:7px;cursor:pointer;transition:.15s}
+    .tab-btn.active{background:#fff;color:var(--saffron2);box-shadow:0 2px 8px rgba(0,0,0,.08)}
+    .form-panel{display:none}.form-panel.active{display:block}
+    .signup-row{display:flex;gap:10px}.signup-row .field-label{flex:1}
+    .avail-check{font-size:12px;margin-top:7px;min-height:18px;display:flex;align-items:center;gap:5px;font-weight:600}
+    .avail-check span{display:inline !important;text-transform:none !important;margin-bottom:0 !important;font-size:12px !important}
+    .avail-check .avail-ok{color:#1e8449 !important}
+    .avail-check .avail-err{color:#e74c3c !important}
+    .avail-check .avail-chk{color:#999 !important;font-weight:400}
+    .forgot-link{font-size:12px;color:#aaa;text-align:right;margin-top:-6px;margin-bottom:10px}
+    .forgot-link a{color:var(--saffron2);text-decoration:none}
+    .forgot-link a:hover{text-decoration:underline}
+    /* Visitor counter — attractive */
+    .visitor-bar{display:flex;gap:20px;align-items:center;justify-content:center;flex-wrap:wrap}
+    .v-card{background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);
+      border-radius:12px;padding:10px 20px;text-align:center;backdrop-filter:blur(10px);
+      min-width:110px;transition:.2s}
+    .v-card:hover{background:rgba(255,255,255,.13)}
+    .v-card .v-num{font-family:'Sora',sans-serif;font-size:24px;font-weight:700;color:#fff;
+      line-height:1.1;transition:all .3s}
+    .v-card .v-lbl{font-size:11px;color:rgba(255,255,255,.55);margin-top:3px;letter-spacing:.04em}
+    .v-live{display:flex;align-items:center;gap:6px;justify-content:center}
+    .live-dot{width:8px;height:8px;border-radius:50%;background:#4ade80;flex-shrink:0;
+      box-shadow:0 0 8px #4ade80;animation:pulse-dot 2s ease-in-out infinite}
+    @keyframes pulse-dot{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.6;transform:scale(.75)}}
+    @media(max-width:580px){.panels{flex-direction:column}.panel-divider{width:auto;height:1px}}
+    .page-loader{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;
+      background:linear-gradient(150deg,#1a1035,#2c1b54);transition:opacity .35s,visibility .35s}
+    .page-loader.loader-hidden{opacity:0;visibility:hidden;pointer-events:none}
+    .loader-spinner{width:44px;height:44px;border-radius:50%;
+      border:4px solid rgba(255,255,255,.18);border-top-color:#fff;animation:smvs-spin .8s linear infinite}
+    @keyframes smvs-spin{to{transform:rotate(360deg)}}
+  </style>
 </head>
-<body class="login-body">
-  <div class="login-card">
-    <div class="login-head">
-      <img src="/static/logo.png" class="login-logo" alt="SMVS" />
-      <div>
-        <div class="login-title">SMVS OCR</div>
-        <div class="login-sub">Sign In To Continue</div>
+<body>
+<div id="pageLoader" class="page-loader"><div class="loader-spinner"></div></div>
+<div class="outer">
+  <div class="panels">
+    <!-- LEFT: Sign In / Sign Up tabs -->
+    <div class="panel">
+      <div class="panel-head">
+        <img src="/static/logo.png" alt="SMVS" />
+        <div>
+          <div class="panel-title">SMVS OCR</div>
+          <div class="panel-sub">Sign in to continue</div>
+        </div>
+      </div>
+
+      <div class="tab-btns">
+        <button class="tab-btn active" id="tabLogin">Sign In</button>
+        <button class="tab-btn" id="tabSignup">Sign Up</button>
+      </div>
+
+      <!-- LOGIN FORM -->
+      <div class="form-panel active" id="loginPanel">
+        <form id="loginForm" autocomplete="off">
+          <div id="loginErr" class="login-err" hidden></div>
+          <label class="field-label"><span>Username</span>
+            <input id="lu" type="text" autocomplete="username" required autofocus />
+          </label>
+          <label class="field-label"><span>Password</span>
+            <div class="pw-wrap">
+              <input id="lp" type="password" autocomplete="current-password" required />
+              <button type="button" class="pw-eye" id="pwEye" title="Show/hide password">
+                <svg id="eyeIcon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+                </svg>
+              </button>
+            </div>
+          </label>
+          <div class="forgot-link"><a href="#" id="forgotLink">Forgot password?</a></div>
+          <button type="submit" id="loginBtn" class="login-btn">Sign In</button>
+        </form>
+      </div>
+
+      <!-- SIGNUP FORM -->
+      <div class="form-panel" id="signupPanel">
+        <form id="signupForm" autocomplete="off">
+          <div id="signupMsg" hidden></div>
+          <div class="signup-row">
+            <label class="field-label"><span>First Name<span class="req-star">*</span></span>
+              <input id="sfname" type="text" required />
+            </label>
+            <label class="field-label"><span>Last Name<span class="req-star">*</span></span>
+              <input id="slname" type="text" required />
+            </label>
+          </div>
+          <label class="field-label"><span>Username<span class="req-star">*</span></span>
+            <input id="suname" type="text" autocomplete="off" required minlength="5" />
+            <div class="avail-check" id="availCheck"></div>
+          </label>
+          <label class="field-label"><span>Email ID<span class="req-star">*</span></span>
+            <input id="semail" type="email" required />
+          </label>
+          <label class="field-label"><span>Password<span class="req-star">*</span></span>
+            <div class="pw-wrap">
+              <input id="spwd" type="password" required minlength="6" />
+              <button type="button" class="pw-eye" id="pwEye2" title="Show/hide">
+                <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+                </svg>
+              </button>
+            </div>
+          </label>
+          <button type="submit" id="signupBtn" class="login-btn">Request Account</button>
+        </form>
+      </div>
+
+      <!-- FORGOT PASSWORD (inline) -->
+      <div class="form-panel" id="forgotPanel">
+        <div style="margin-bottom:16px">
+          <div style="font-size:15px;font-weight:700;color:#2c2c4a;margin-bottom:6px">🔑 Forgot Password</div>
+          <div style="font-size:13px;color:#888">Enter your username — we'll send a reset link to your registered email.</div>
+        </div>
+        <div id="forgotMsg" hidden></div>
+        <label class="field-label"><span>Username</span>
+          <input id="fuser" type="text" placeholder="Your username" />
+        </label>
+        <button type="button" id="forgotBtn" class="login-btn">Send Reset Link</button>
+        <div style="margin-top:12px;text-align:center">
+          <a href="#" id="backToLogin" style="font-size:13px;color:#aaa;text-decoration:none">← Back to Sign In</a>
+        </div>
       </div>
     </div>
-    <form id="loginForm" class="login-form" autocomplete="off">
-      <label class="login-field">
-        <span>Username</span>
-        <input id="lu" type="text" autocomplete="username" required autofocus />
-      </label>
-      <label class="login-field">
-        <span>Password</span>
-        <input id="lp" type="password" autocomplete="current-password" required />
-      </label>
-      <div id="loginErr" class="login-err" hidden></div>
-      <button type="submit" id="loginBtn" class="login-btn">Login</button>
-    </form>
   </div>
-  <script>
-    const form = document.getElementById("loginForm");
-    const err = document.getElementById("loginErr");
-    const btn = document.getElementById("loginBtn");
-    form.addEventListener("submit", async (e) => {
-      e.preventDefault();
-      err.hidden = true; btn.disabled = true; btn.textContent = "Signing in…";
-      const fd = new FormData();
-      fd.append("username", document.getElementById("lu").value.trim());
-      fd.append("password", document.getElementById("lp").value);
-      try {
-        const r = await fetch("/api/login", { method: "POST", body: fd });
-        const d = await r.json();
-        if (r.ok && d.ok) { window.location.href = "/"; return; }
-        err.textContent = d.error || "Login failed."; err.hidden = false;
-      } catch { err.textContent = "Network error. Try again."; err.hidden = false; }
-      btn.disabled = false; btn.textContent = "Login";
-    });
-  </script>
+
+  <!-- Visitor counter bar -->
+  <div class="visitor-bar">
+    <div class="v-card">
+      <div class="v-live">
+        <span class="live-dot"></span>
+        <div class="v-num" id="onlineCount">—</div>
+      </div>
+      <div class="v-lbl">ONLINE NOW</div>
+    </div>
+    <div class="v-card">
+      <div class="v-num" id="totalVisits">—</div>
+      <div class="v-lbl">TOTAL VISITS</div>
+    </div>
+  </div>
+</div>
+
+<script>
+window.addEventListener("load",()=>{ const pl=document.getElementById("pageLoader"); if(pl) pl.classList.add("loader-hidden"); });
+
+// Tab switching
+const tabLogin=document.getElementById("tabLogin"),tabSignup=document.getElementById("tabSignup");
+const loginPanel=document.getElementById("loginPanel"),signupPanel=document.getElementById("signupPanel"),forgotPanel=document.getElementById("forgotPanel");
+function showPanel(p){ [loginPanel,signupPanel,forgotPanel].forEach(x=>x.classList.remove("active")); p.classList.add("active"); }
+tabLogin.onclick=()=>{ tabLogin.classList.add("active"); tabSignup.classList.remove("active"); showPanel(loginPanel); };
+tabSignup.onclick=()=>{ tabSignup.classList.add("active"); tabLogin.classList.remove("active"); showPanel(signupPanel); };
+document.getElementById("forgotLink").onclick=(e)=>{ e.preventDefault(); tabLogin.classList.remove("active"); tabSignup.classList.remove("active"); showPanel(forgotPanel); };
+document.getElementById("backToLogin").onclick=(e)=>{ e.preventDefault(); tabLogin.classList.add("active"); tabSignup.classList.remove("active"); showPanel(loginPanel); };
+
+// Password eye toggle (login)
+const eyeOpen=`<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>`;
+const eyeClosed=`<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>`;
+let pwVisible=false;
+document.getElementById("pwEye").onclick=()=>{ pwVisible=!pwVisible; const lp=document.getElementById("lp"); lp.type=pwVisible?"text":"password"; document.getElementById("eyeIcon").innerHTML=pwVisible?eyeClosed:eyeOpen; };
+let spwVisible=false;
+document.getElementById("pwEye2").onclick=()=>{ spwVisible=!spwVisible; const sp=document.getElementById("spwd"); sp.type=spwVisible?"text":"password"; };
+
+// Login form
+document.getElementById("loginForm").addEventListener("submit",async(e)=>{
+  e.preventDefault();
+  const err=document.getElementById("loginErr"),btn=document.getElementById("loginBtn");
+  err.hidden=true; btn.disabled=true; btn.textContent="Signing in…";
+  const pl=document.getElementById("pageLoader"); if(pl) pl.classList.remove("loader-hidden");
+  const fd=new FormData();
+  fd.append("username",document.getElementById("lu").value.trim());
+  fd.append("password",document.getElementById("lp").value);
+  try{
+    const r=await fetch("/api/login",{method:"POST",body:fd});
+    const d=await r.json();
+    if(r.ok&&d.ok){window.location.href="/";return;}
+    err.textContent=d.error||"Login failed."; err.hidden=false;
+  }catch{err.textContent="Network error. Try again."; err.hidden=false;}
+  btn.disabled=false; btn.textContent="Sign In";
+  if(pl) pl.classList.add("loader-hidden");
+});
+
+// Username availability check
+let _uTimer=null;
+document.getElementById("suname").addEventListener("input",function(){
+  const el=document.getElementById("availCheck"); el.innerHTML="";
+  clearTimeout(_uTimer); const v=this.value.trim();
+  if(v.length<3) return;
+  el.innerHTML=`<span class="avail-chk">Checking…</span>`;
+  _uTimer=setTimeout(async()=>{
+    try{
+      const r=await fetch(`/api/check-username?username=${encodeURIComponent(v)}`);
+      const d=await r.json();
+      el.innerHTML=d.available
+        ? `<span class="avail-ok">${d.reason} ✓</span>`
+        : `<span class="avail-err">${d.reason} ✗</span>`;
+    }catch{el.innerHTML="";}
+  },400);
+});
+
+// Signup form
+document.getElementById("signupForm").addEventListener("submit",async(e)=>{
+  e.preventDefault();
+  const msgEl=document.getElementById("signupMsg"),btn=document.getElementById("signupBtn");
+  const fn=document.getElementById("sfname").value.trim();
+  const ln=document.getElementById("slname").value.trim();
+  const un=document.getElementById("suname").value.trim();
+  const em=document.getElementById("semail").value.trim();
+  const pw=document.getElementById("spwd").value;
+  function showErr(t){ msgEl.style.cssText="background:#fbe1de;color:#c0392b;border-radius:9px;padding:12px;margin-bottom:12px;font-size:13px"; msgEl.textContent=t; msgEl.hidden=false; }
+  if(!fn){ showErr("First name required."); return; }
+  if(!ln){ showErr("Last name required."); return; }
+  if(un.length<5){ showErr("Username min 5 characters."); return; }
+  if(!em||!em.includes("@")){ showErr("Valid email required."); return; }
+  if(pw.length<6){ showErr("Password min 6 characters."); return; }
+  msgEl.hidden=true; btn.disabled=true; btn.textContent="Submitting…";
+  try{
+    const r=await fetch("/api/signup",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({first_name:fn,last_name:ln,username:un,email:em,password:pw})});
+    const d=await r.json();
+    msgEl.style.cssText=r.ok?"background:#e3f6ea;color:#1e8449;border-radius:9px;padding:12px;margin-bottom:12px;font-size:13px"
+      :"background:#fbe1de;color:#c0392b;border-radius:9px;padding:12px;margin-bottom:12px;font-size:13px";
+    msgEl.textContent=r.ok?d.message:d.error; msgEl.hidden=false;
+  }catch{ showErr("Network error."); }
+  btn.disabled=false; btn.textContent="Request Account";
+});
+
+// Forgot password
+document.getElementById("forgotBtn").onclick=async()=>{
+  const username=document.getElementById("fuser").value.trim();
+  const msgEl=document.getElementById("forgotMsg"),btn=document.getElementById("forgotBtn");
+  if(!username){msgEl.style.cssText="background:#fbe1de;color:#c0392b;border-radius:9px;padding:10px;margin-bottom:10px;font-size:13px";msgEl.textContent="Enter your username.";msgEl.hidden=false;return;}
+  btn.disabled=true; btn.textContent="Sending…";
+  try{
+    const r=await fetch("/api/forgot-password",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username})});
+    const d=await r.json();
+    msgEl.style.cssText="background:#e3f6ea;color:#1e8449;border-radius:9px;padding:10px;margin-bottom:10px;font-size:13px";
+    msgEl.innerHTML=d.message||"Reset link sent!"; msgEl.hidden=false;
+  }catch{msgEl.style.cssText="background:#fbe1de;color:#c0392b;border-radius:9px;padding:10px;margin-bottom:10px;font-size:13px";msgEl.textContent="Network error.";msgEl.hidden=false;}
+  btn.disabled=false; btn.textContent="Send Reset Link";
+};
+
+// Visitor count
+async function fetchVisitorCount(){
+  try{
+    const d=await (await fetch("/api/visitor-count")).json();
+    const on=document.getElementById("onlineCount"),tv=document.getElementById("totalVisits");
+    if(on) on.textContent=d.online_now??'—';
+    if(tv) tv.textContent=(d.total_visits??'—').toLocaleString();
+  }catch{}
+}
+fetchVisitorCount(); setInterval(fetchVisitorCount,30000);
+setInterval(()=>fetch("/api/ping",{method:"POST"}).catch(()=>{}),25000);
+</script>
 </body>
 </html>

@@ -26,6 +26,9 @@ from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
 from fastapi.staticfiles import StaticFiles
 
 import engine
+import db
+import storage
+import emailer
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 JOBS = os.path.join(BASE, "jobs")
@@ -57,6 +60,13 @@ ADMIN_PASSWORD = str(_CFG.get("admin_password") or os.environ.get("ADMIN_PASSWOR
 MAX_FILES = int(_CFG.get("max_files", 50))
 ACTIVE_JOBS = set()        # atyare process thati jobs - cleanup aane skip kare
 
+APP_VERSION = "3.0"
+APP_DATE    = "01-07-2026"
+
+storage.configure(storage.load_runtime_config(JOBS) or _CFG.get("storage", {}))
+storage.start_retry_worker(db, JOBS)
+emailer.configure(storage.load_email_config(JOBS) or _CFG.get("email", {}))
+
 # ------------------------------------------------------------------ AUTH
 USERS_DIR = os.path.join(JOBS, "_users")
 os.makedirs(USERS_DIR, exist_ok=True)
@@ -78,6 +88,27 @@ else:
         pass
 
 _UNAME_RE = re.compile(r"^[A-Za-z0-9._-]{2,40}$")
+_EMAIL_RE = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
+
+VISITOR_COOKIE = "smvs_vid"
+
+
+def _client_ip(request: Request):
+    fwd = request.headers.get("x-forwarded-for")
+    if fwd:
+        return fwd.split(",")[0].strip()
+    return request.client.host if request.client else None
+
+
+def _device_label(request: Request):
+    ua = request.headers.get("user-agent", "") or ""
+    return ua[:180]  # raw UA, truncated — lightweight, no extra parsing dependency
+
+
+def _client_meta(request: Request):
+    """IP + device for tracking. Location resolution (city/country) plug-in karva
+    mate _client_ip() na result par GeoIP lookup add kari shakay pachi (step 5/6 ma)."""
+    return _client_ip(request), _device_label(request), None  # ip, device, location
 
 
 def _hash_pw(password, salt):
@@ -148,7 +179,10 @@ os.makedirs(STATIC, exist_ok=True)
 
 app = FastAPI(title="SMVS OCR")
 
-_PUBLIC = {"/login", "/api/login", "/health", "/favicon.ico"}
+_PUBLIC = {"/login", "/api/login", "/health", "/favicon.ico", "/api/visitor-count",
+           "/api/signup", "/api/check-username", "/api/approve-user",
+           "/reset-password", "/api/forgot-password", "/api/reset-password",
+           "/api/feedback"}
 
 
 @app.middleware("http")
@@ -169,6 +203,20 @@ async def auth_middleware(request: Request, call_next):
     return await call_next(request)
 
 
+def _track_page_view(request: Request, response, page: str, logged_in: bool):
+    """Visitor session cookie banavi/vaanchi, page_views table ma record kare.
+    Login page (pre-login) ane main/admin pages (post-login) banne mate vapras."""
+    vid = request.cookies.get(VISITOR_COOKIE)
+    if not vid:
+        vid = db.new_session_id()
+        response.set_cookie(VISITOR_COOKIE, vid, max_age=30 * 86400, httponly=True, samesite="lax")
+    ip = _client_ip(request)
+    try:
+        db.page_view_record(vid, page, logged_in, ip)
+    except Exception:
+        pass
+
+
 def _cleanup():
     now = time.time()
     for d in os.listdir(JOBS):
@@ -176,8 +224,14 @@ def _cleanup():
         try:
             if d in ACTIVE_JOBS or d.startswith("_"):   # _fonts vagere skip
                 continue
-            if os.path.isdir(p) and now - os.path.getmtime(p) > JOB_TTL:
-                shutil.rmtree(p, ignore_errors=True)
+            if not os.path.isdir(p) or now - os.path.getmtime(p) <= JOB_TTL:
+                continue
+            if storage.is_enabled():
+                # Cloud configured chhe: upload_failed batch ne skip karo (retry worker
+                # mate local copy joiye chhe), baki TTL expire thaya pachi normal delete.
+                if db.batch_has_pending_upload(d):
+                    continue
+            shutil.rmtree(p, ignore_errors=True)
         except OSError:
             pass
 
@@ -195,7 +249,7 @@ def languages():
 
 
 @app.get("/login", response_class=HTMLResponse)
-def login_page():
+def login_page(request: Request):
     path = os.path.join(STATIC, "login.html")
     if not os.path.isfile(path):
         return HTMLResponse("<h2>Login page not found (static/login.html).</h2>")
@@ -206,14 +260,25 @@ def login_page():
         p = os.path.join(STATIC, name)
         return str(int(os.path.getmtime(p))) if os.path.isfile(p) else "1"
     html = html.replace("/static/style.css", f"/static/style.css?v={ver('style.css')}")
-    return HTMLResponse(html)
+    resp = HTMLResponse(html)
+    _track_page_view(request, resp, "login", logged_in=False)
+    return resp
 
 
 @app.post("/api/login")
-async def api_login(username: str = Form(...), password: str = Form(...)):
+async def api_login(request: Request, username: str = Form(...), password: str = Form(...)):
+    ip, device, location = _client_meta(request)
     user = verify_credentials(username.strip(), password)
     if not user:
+        try:
+            db.login_record(username.strip(), ip, device, location, success=False)
+        except Exception:
+            pass
         return JSONResponse({"error": "Wrong username or password."}, status_code=401)
+    try:
+        db.login_record(user["username"], ip, device, location, success=True)
+    except Exception:
+        pass
     resp = JSONResponse({"ok": True, "username": user["username"], "role": user["role"]})
     resp.set_cookie(COOKIE, _make_token(user["username"], user["role"]),
                     max_age=SESSION_DAYS * 86400, httponly=True, samesite="lax")
@@ -233,6 +298,35 @@ async def api_me(request: Request):
     if not u:
         return JSONResponse({"error": "Login required"}, status_code=401)
     return {"username": u["username"], "role": u["role"]}
+
+
+@app.post("/api/me/change-password")
+async def api_change_password(request: Request, payload: dict):
+    """Logged-in user pote j password change kare — current password verify karine.
+    Admin user (config-based password) aa thi change nathi kari shakto — admin password
+    config.yaml/env ma j chhe, e alag flow chhe (reset to admin's job)."""
+    u = getattr(request.state, "user", None)
+    if not u:
+        return JSONResponse({"error": "Login required"}, status_code=401)
+    username = u["username"]
+    current_password = str(payload.get("current_password", ""))
+    new_password = str(payload.get("new_password", ""))
+    if len(new_password) < 6:
+        return JSONResponse({"error": "New password must be at least 6 characters."}, status_code=400)
+    if username == ADMIN_USERNAME:
+        return JSONResponse(
+            {"error": "Admin password is set via config.yaml/environment, not changeable here."},
+            status_code=400)
+    users = _load_users()
+    urec = users.get(username)
+    if not urec or not _verify_pw(current_password, urec.get("salt", ""), urec.get("hash", "")):
+        return JSONResponse({"error": "Current password is incorrect."}, status_code=401)
+    salt = os.urandom(16)
+    urec["salt"] = salt.hex()
+    urec["hash"] = _hash_pw(new_password, salt)
+    users[username] = urec
+    _save_users(users)
+    return {"ok": True}
 
 
 @app.get("/api/fonts")
@@ -350,6 +444,19 @@ async def convert(request: Request, files: list[UploadFile] = File(...), options
         wpdf = bool(it.get("searchable_pdf", default_pdf))   # per-file searchable PDF
         saved.append((uf.filename, stem, src, langs, sel, total, wpdf))
 
+    # --- DB: queue position (before adding ours) + per-file time estimate (step 2/3) ---
+    queue_ahead = db.jobs_pending_count()
+    sec_per_page = db.avg_seconds_per_page()
+    sub_job_ids = []
+    ip, device, location = _client_meta(request)
+    for (orig, stem, src, langs, sel, total, wpdf) in saved:
+        sub_id = f"{job}_{len(sub_job_ids):02d}"
+        sub_job_ids.append(sub_id)
+        db.job_create(sub_id, job_username, orig, language="+".join(langs) if langs else None,
+                      mode=("line" if line_mode else "paragraph"), ip=ip, location=location,
+                      device=device)
+        db.job_update(sub_id, pages=total * (2 if wpdf else 1))
+
     def gen():
         import queue as _q
         import threading
@@ -359,12 +466,18 @@ async def convert(request: Request, files: list[UploadFile] = File(...), options
         def worker():
             ACTIVE_JOBS.add(job)
             q.put({"type": "start", "job": job})
-            # Plan: badhi files na page totals (queue + progress bars mate)
-            q.put({"type": "plan",
-                   "files": [{"name": o, "pages_total": t * (2 if wp else 1)}
-                             for (o, _s, _src, _l, _sel, t, wp) in saved]})
+            # Plan: badhi files na page totals + estimated seconds (queue/progress bars mate)
+            q.put({"type": "plan", "queue_ahead": queue_ahead,
+                   "files": [{"name": o, "pages_total": t * (2 if wp else 1),
+                              "estimated_sec": round(t * (2 if wp else 1) * sec_per_page, 1)}
+                             for (o, _s, _src, _l, _sel, t, wp) in saved],
+                   "total_estimated_sec": round(
+                       sum(t * (2 if wp else 1) for (_o, _s, _src, _l, _sel, t, wp) in saved)
+                       * sec_per_page, 1)})
             try:
-                for (orig, stem, src, langs, sel, total, want_pdf) in saved:
+                for fidx, (orig, stem, src, langs, sel, total, want_pdf) in enumerate(saved):
+                    sub_id = sub_job_ids[fidx]
+                    db.job_update(sub_id, status="processing", start_time=time.time())
                     lang_str = "+".join(langs) if langs else "eng"
                     units = total * (2 if want_pdf else 1)   # structured + pdf pass
                     q.put({"type": "file_start", "name": orig, "langs": langs,
@@ -409,7 +522,33 @@ async def convert(request: Request, files: list[UploadFile] = File(...), options
                         q.put({"type": "file_done", "name": orig, "text": text,
                                "counts": counts, "downloads": downloads, "error": None,
                                "seconds": round(time.time() - t0, 1)})
+
+                        # --- Cloud upload: sirf original + TXT j upload karvu (point 3)
+                        file_paths = [src]
+                        if want_txt and 'tp' in dir():
+                            if os.path.isfile(tp): file_paths.append(tp)
+                        file_paths = [p for p in file_paths if p and os.path.isfile(p)]
+                        dur = round(time.time() - t0, 1)
+                        primary_out = (downloads[0]["file"] if downloads else None)
+                        if storage.is_enabled():
+                            try:
+                                provider, link = storage.upload_job_files(
+                                    job_username, sub_id, stem, file_paths)
+                                db.job_update(sub_id, status="completed", end_time=time.time(),
+                                              duration_sec=dur, output_filename=primary_out,
+                                              cloud_provider=provider, cloud_folder_link=link)
+                            except Exception as ue:
+                                db.job_update(sub_id, status="upload_failed", end_time=time.time(),
+                                              duration_sec=dur, output_filename=primary_out,
+                                              error_message=str(ue)[:300])
+                                q.put({"type": "log", "name": orig,
+                                       "msg": f"Cloud upload pending/retry: {ue}"})
+                        else:
+                            db.job_update(sub_id, status="completed", end_time=time.time(),
+                                          duration_sec=dur, output_filename=primary_out)
                     except Exception as e:
+                        db.job_update(sub_id, status="error", end_time=time.time(),
+                                      error_message=str(e)[:300])
                         q.put({"type": "file_done", "name": orig, "text": "", "counts": {},
                                "downloads": [], "error": str(e),
                                "seconds": round(time.time() - t0, 1)})
@@ -517,9 +656,18 @@ async def admin_delete(payload: dict):
 @app.get("/api/admin/users")
 async def admin_users():
     users = _load_users()
-    out = [{"username": ADMIN_USERNAME, "role": "admin", "builtin": True}]
+    out = [{"username": ADMIN_USERNAME, "role": "admin", "builtin": True,
+            "email": "", "first_name": "Admin", "last_name": "", "status": "active"}]
     for un, u in sorted(users.items()):
-        out.append({"username": un, "role": u.get("role", "user"), "builtin": False})
+        out.append({"username": un, "role": u.get("role", "user"), "builtin": False,
+                    "email": u.get("email", ""), "first_name": u.get("first_name", ""),
+                    "last_name": u.get("last_name", ""), "status": "active"})
+    # pending approvals
+    pending = db.pending_user_get_all()
+    for p in pending:
+        out.append({"username": p["username"], "role": "user", "builtin": False,
+                    "email": p["email"], "first_name": p["first_name"],
+                    "last_name": p["last_name"], "status": "pending"})
     return {"users": out}
 
 
@@ -527,6 +675,9 @@ async def admin_users():
 async def admin_create_user(payload: dict):
     username = str(payload.get("username", "")).strip()
     password = str(payload.get("password", ""))
+    email    = str(payload.get("email", "")).strip()
+    fname    = str(payload.get("first_name", "")).strip()
+    lname    = str(payload.get("last_name", "")).strip()
     if not _UNAME_RE.match(username):
         return JSONResponse({"error": "Username: 2-40 chars, letters/digits/._- only."}, status_code=400)
     if len(password) < 4:
@@ -534,10 +685,11 @@ async def admin_create_user(payload: dict):
     if username == ADMIN_USERNAME:
         return JSONResponse({"error": "That username is reserved."}, status_code=400)
     users = _load_users()
-    if username in users:
+    if db.username_taken(username, users):
         return JSONResponse({"error": "User already exists."}, status_code=400)
     salt = os.urandom(16)
-    users[username] = {"salt": salt.hex(), "hash": _hash_pw(password, salt), "role": "user"}
+    users[username] = {"salt": salt.hex(), "hash": _hash_pw(password, salt), "role": "user",
+                       "email": email, "first_name": fname, "last_name": lname}
     _save_users(users)
     return {"ok": True, "username": username}
 
@@ -586,6 +738,168 @@ async def admin_delete_font(payload: dict):
         os.remove(p)
         return {"ok": True}
     return JSONResponse({"error": "Font not found."}, status_code=400)
+
+
+# --------------------------------------------------------- ADMIN DASHBOARD (Step 5)
+
+_RANGE_DAYS = {"today": 1, "15d": 15, "month": 30, "6m": 182, "all": None}
+
+
+@app.get("/api/admin/dashboard/summary")
+async def admin_dashboard_summary(range: str = "all"):
+    days = _RANGE_DAYS.get(range, None)
+    since = (time.time() - days * 86400) if days else None
+    summary = db.dashboard_summary(since)
+    summary["queue_depth"] = db.jobs_pending_count()
+    summary["avg_sec_per_page"] = round(db.avg_seconds_per_page(), 2)
+    summary["storage_enabled"] = storage.is_enabled()
+    return summary
+
+
+@app.get("/api/admin/dashboard/timeseries")
+async def admin_dashboard_timeseries(range: str = "month"):
+    days = _RANGE_DAYS.get(range, 30) or 365
+    return {"days": days, "data": db.dashboard_timeseries(days)}
+
+
+@app.get("/api/admin/dashboard/userwise")
+async def admin_dashboard_userwise():
+    return {"users": db.dashboard_userwise()}
+
+
+@app.get("/api/admin/dashboard/live")
+async def admin_dashboard_live():
+    live = db.live_counts()
+    live.update(db.page_view_totals())
+    return live
+
+
+@app.get("/api/admin/dashboard/logins")
+async def admin_dashboard_logins(limit: int = 100):
+    return {"logins": db.login_history_recent(limit)}
+
+
+@app.get("/api/admin/dashboard/failed-uploads")
+async def admin_dashboard_failed_uploads():
+    return {"jobs": db.jobs_failed_uploads(), "max_attempts": storage.max_retry_attempts()}
+
+
+@app.post("/api/admin/dashboard/retry-upload")
+async def admin_retry_upload(payload: dict):
+    """Admin manually triggers a single retry for one failed job (instead of waiting
+    for the periodic background retry cycle)."""
+    job_id = str(payload.get("job_id", ""))
+    job = db.job_get(job_id)
+    if not job:
+        return JSONResponse({"error": "Job not found"}, status_code=404)
+    out_dir = os.path.join(JOBS, job_id.rsplit("_", 1)[0], "out")
+    if not os.path.isdir(out_dir):
+        return JSONResponse({"error": "Local files no longer available"}, status_code=400)
+    file_paths = [os.path.join(out_dir, f) for f in os.listdir(out_dir)]
+    try:
+        stem = os.path.splitext(job["original_filename"] or "file")[0]
+        provider, link = storage.upload_job_files(job["username"], job_id, stem, file_paths)
+        db.job_update(job_id, status="completed", cloud_provider=provider, cloud_folder_link=link,
+                      upload_attempts=(job.get("upload_attempts") or 0) + 1)
+        return {"ok": True, "provider": provider, "link": link}
+    except Exception as e:
+        db.job_update(job_id, upload_attempts=(job.get("upload_attempts") or 0) + 1,
+                      error_message=str(e)[:300])
+        return JSONResponse({"error": str(e)}, status_code=502)
+
+
+@app.get("/api/admin/dashboard/jobs")
+async def admin_dashboard_jobs(username: str = None, status: str = None, search: str = None,
+                                 limit: int = 200):
+    return {"jobs": db.jobs_query(username=username, status=status, search=search, limit=limit)}
+
+
+# --------------------------------------------------------- CLOUD STORAGE ADMIN (Step 6 UI)
+
+@app.post("/api/admin/storage/toggle-active")
+async def admin_storage_toggle():
+    """Credentials delete nathi thata — sirf connection deactivate/activate thay chhe."""
+    cfg = storage.load_runtime_config(JOBS)
+    if not cfg or cfg.get("provider", "none") == "none":
+        return JSONResponse({"error": "No provider configured yet."}, status_code=400)
+    cfg["active"] = not cfg.get("active", True)
+    storage.save_runtime_config(JOBS, cfg)
+    storage.configure(cfg)
+    return {"ok": True, "active": cfg["active"]}
+
+
+@app.get("/api/admin/storage/status")
+async def admin_storage_status():
+    s = storage.masked_status()
+    s["pending_count"] = len(db.jobs_failed_uploads())
+    return s
+
+
+@app.post("/api/admin/storage/config")
+async def admin_storage_config(payload: dict):
+    """Admin panel thi cloud storage connect/update — config.yaml touch karva ni jarur nathi,
+    runtime ma j save thay chhe ane immediately apply (no restart needed)."""
+    provider = str(payload.get("provider", "none")).strip().lower()
+    cfg = {
+        "provider": provider,
+        "max_retry_attempts": int(payload.get("max_retry_attempts", 8)),
+        "retry_interval_sec": int(payload.get("retry_interval_sec", 180)),
+    }
+    try:
+        if provider == "google_drive":
+            existing = storage.load_runtime_config(JOBS) or {}
+            ex_gd = existing.get("google_drive", {})
+            cfg["google_drive"] = {
+                "root_folder_id": str(payload.get("root_folder_id", "")).strip(),
+                "client_email":   str(payload.get("client_email", "") or ex_gd.get("client_email", "")).strip(),
+                "project_id":     str(payload.get("project_id", "") or ex_gd.get("project_id", "")).strip(),
+                "private_key":    str(payload.get("private_key", "") or ex_gd.get("private_key", "")).strip(),
+            }
+            if not cfg["google_drive"]["client_email"] or not cfg["google_drive"]["private_key"]:
+                return JSONResponse({"error": "Client Email and Private Key are required."}, status_code=400)
+        elif provider == "onedrive":
+            existing = storage.load_runtime_config(JOBS) or {}
+            existing_secret = existing.get("onedrive", {}).get("client_secret", "")
+            cfg["onedrive"] = {
+                "tenant_id": str(payload.get("tenant_id", "")).strip(),
+                "client_id": str(payload.get("client_id", "")).strip(),
+                "client_secret": str(payload.get("client_secret") or existing_secret).strip(),
+                "drive_id": str(payload.get("drive_id", "")).strip(),
+                "root_path": str(payload.get("root_path", "/SMVS-OCR")).strip(),
+            }
+        storage.save_runtime_config(JOBS, cfg)
+        storage.configure(cfg)
+        if provider != "none" and not storage.is_enabled():
+            return JSONResponse(
+                {"error": "Settings saved, but backend failed to initialize — check credentials."},
+                status_code=400)
+        return {"ok": True}
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.get("/api/admin/storage/jobs")
+async def admin_storage_jobs():
+    return {"jobs": db.cloud_jobs_all()}
+
+
+@app.post("/api/admin/storage/test")
+async def admin_storage_test():
+    try:
+        result = storage.test_connection()
+        return result
+    except Exception as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.get("/api/admin/storage/jobs")
+async def admin_storage_jobs():
+    """Cloud Management tab — badha jobs (completed + failed) with server-remove status."""
+    jobs = db.cloud_jobs_all()
+    for j in jobs:
+        job_dir = os.path.join(JOBS, j["job_id"].rsplit("_", 1)[0])
+        j["server_files_exist"] = os.path.isdir(job_dir)
+    return {"jobs": jobs, "max_attempts": storage.max_retry_attempts()}
 
 
 @app.get("/admin", response_class=HTMLResponse)
@@ -648,12 +962,353 @@ def index(request: Request):
     role_script = f'<script>window.__SMVS_ROLE__={json.dumps(role)};</script>'
     html = html.replace("<head>", "<head>\n" + role_script, 1)
 
-    return HTMLResponse(html)
+    resp = HTMLResponse(html)
+    _track_page_view(request, resp, "app", logged_in=bool(u))
+    return resp
 
 
 @app.get("/health")
 def health():
-    return {"ok": True, "langs": sorted(engine.installed_languages())}
+    return {"ok": True, "langs": sorted(engine.installed_languages()),
+            "version": APP_VERSION, "date": APP_DATE}
+
+
+@app.get("/api/version")
+def api_version():
+    return {"version": APP_VERSION, "date": APP_DATE,
+            "email_enabled": emailer.is_enabled()}
+
+
+# --------------------------------------------------------- USERNAME CHECK
+@app.get("/api/check-username")
+async def check_username(username: str = ""):
+    username = username.strip()
+    if not username:
+        return {"available": False, "reason": ""}
+    if len(username) < 5:
+        return {"available": False, "reason": "Min 5 characters required"}
+    if not _UNAME_RE.match(username):
+        return {"available": False, "reason": "Letters, digits, . _ - only"}
+    if username == ADMIN_USERNAME:
+        return {"available": False, "reason": "Username not available"}
+    users = _load_users()
+    if db.username_taken(username, users):
+        return {"available": False, "reason": "Username already taken"}
+    return {"available": True, "reason": "Username available"}
+
+
+# --------------------------------------------------------- SIGNUP
+@app.post("/api/signup")
+async def api_signup(request: Request, payload: dict):
+    username   = str(payload.get("username", "")).strip()
+    email      = str(payload.get("email", "")).strip()
+    first_name = str(payload.get("first_name", "")).strip()
+    last_name  = str(payload.get("last_name", "")).strip()
+    password   = str(payload.get("password", ""))
+    if len(username) < 5 or not _UNAME_RE.match(username):
+        return JSONResponse({"error": "Username min 5 chars, letters/digits/._- only."}, status_code=400)
+    if not email or not _EMAIL_RE.match(email):
+        return JSONResponse({"error": "Valid email required."}, status_code=400)
+    if not first_name:
+        return JSONResponse({"error": "First name required."}, status_code=400)
+    if not last_name:
+        return JSONResponse({"error": "Last name required."}, status_code=400)
+    if len(password) < 6:
+        return JSONResponse({"error": "Password min 6 characters."}, status_code=400)
+    users = _load_users()
+    if db.username_taken(username, users):
+        return JSONResponse({"error": "Username already taken."}, status_code=409)
+    salt   = os.urandom(16)
+    pw_hash = _hash_pw(password, salt)
+    token  = os.urandom(32).hex()
+    db.pending_user_create(username, email, first_name, last_name, salt.hex(), pw_hash, token)
+    base = str(request.base_url).rstrip("/")
+    approve_link = f"{base}/api/approve-user?token={token}"
+    emailer.send_signup_verification(email, first_name, username, approve_link)
+    admin_email = emailer._CFG.get("admin_email", "")
+    if admin_email:
+        emailer.send_admin_approval_request(admin_email, first_name, last_name,
+                                             username, email, approve_link)
+    return {"ok": True, "message": "Signup successful! Check your email. Awaiting admin approval."}
+
+
+# --------------------------------------------------------- APPROVE USER (email link + admin UI)
+@app.get("/api/approve-user")
+async def api_approve_user(token: str = ""):
+    pending = db.pending_user_get(token)
+    if not pending:
+        return HTMLResponse("<h2>Invalid or expired approval link.</h2>", status_code=400)
+    users = _load_users()
+    if pending["username"] not in users:
+        users[pending["username"]] = {
+            "salt": pending["salt"], "hash": pending["hash"], "role": "user",
+            "email": pending["email"], "first_name": pending["first_name"],
+            "last_name": pending["last_name"],
+        }
+        _save_users(users)
+    db.pending_user_delete(pending["username"])
+    emailer.send_approval_notification(pending["email"], pending["first_name"], pending["username"])
+    return HTMLResponse("""<html><head><title>User Approved</title>
+    <style>body{font-family:sans-serif;text-align:center;padding:60px;background:#f5f0e8}
+    .box{background:#fff;border-radius:16px;padding:40px;display:inline-block;box-shadow:0 4px 24px rgba(0,0,0,.1)}
+    h2{color:#1e8449}a{color:#c97e1a}</style></head>
+    <body><div class="box"><h2>✅ User Approved!</h2>
+    <p>The user has been notified via email.</p>
+    <a href="/admin">← Go to Admin Panel</a></div></body></html>""")
+
+
+@app.post("/api/admin/users/approve")
+async def admin_approve_user(payload: dict):
+    username = str(payload.get("username", "")).strip()
+    pending_list = db.pending_user_get_all()
+    pending = next((p for p in pending_list if p["username"] == username), None)
+    if not pending:
+        return JSONResponse({"error": "Pending user not found."}, status_code=404)
+    users = _load_users()
+    users[username] = {
+        "salt": pending["salt"], "hash": pending["hash"], "role": "user",
+        "email": pending["email"], "first_name": pending["first_name"],
+        "last_name": pending["last_name"],
+    }
+    _save_users(users)
+    db.pending_user_delete(username)
+    emailer.send_approval_notification(pending["email"], pending["first_name"], username)
+    return {"ok": True}
+
+
+@app.post("/api/admin/users/reject")
+async def admin_reject_user(payload: dict):
+    username = str(payload.get("username", "")).strip()
+    db.pending_user_delete(username)
+    return {"ok": True}
+
+
+# ------------------------------------------------- FORGOT / RESET PASSWORD
+@app.post("/api/forgot-password")
+async def api_forgot_password(request: Request, payload: dict):
+    username = str(payload.get("username", "")).strip()
+    if not username:
+        return JSONResponse({"error": "Username required."}, status_code=400)
+    users = _load_users()
+    urec = users.get(username)
+    # Always return ok-ish (don't reveal if user exists) — but if found, send + mask
+    if urec and urec.get("email"):
+        email = urec["email"]
+        token = db.reset_token_create(username, expires_minutes=15)
+        base  = str(request.base_url).rstrip("/")
+        link  = f"{base}/reset-password?token={token}"
+        # Synchronous send so user knows immediately it went out
+        sent = emailer.send_password_reset_sync(email, urec.get("first_name", username), link)
+        masked = _mask_email(email)
+        if sent:
+            return {"ok": True, "message": f"✅ Reset link sent to <b>{masked}</b> — check your inbox (expires in 15 min)."}
+        return JSONResponse({"error": "Email could not be sent. Contact admin."}, status_code=500)
+    return {"ok": True, "message": "If that username exists, a reset link has been sent to the registered email."}
+
+
+def _mask_email(email):
+    """abc12345@xyz.com → abc*****45@xyz.com"""
+    try:
+        local, domain = email.split("@", 1)
+        if len(local) <= 4:
+            masked = local[0] + "*" * (len(local) - 1)
+        else:
+            masked = local[:3] + "*" * (len(local) - 5) + local[-2:]
+        return f"{masked}@{domain}"
+    except Exception:
+        return "your registered email"
+
+
+@app.get("/reset-password", response_class=HTMLResponse)
+async def reset_password_page(token: str = ""):
+    html = f"""<!DOCTYPE html><html><head><title>Reset Password · SMVS OCR</title>
+    <link rel="stylesheet" href="/static/style.css"/>
+    <style>body{{display:flex;align-items:center;justify-content:center;min-height:100vh;background:#f5f0e8}}
+    .rp-card{{background:#fff;border-radius:16px;padding:36px;width:min(380px,90vw);
+      box-shadow:0 8px 32px rgba(0,0,0,.12)}}
+    h2{{font-family:Sora,sans-serif;font-size:20px;margin:0 0 20px;color:#2c2c4a}}
+    label{{display:block;margin-bottom:14px;font-size:13px;font-weight:600;color:#666}}
+    input{{width:100%;padding:10px 12px;border:1px solid #e0d8c8;border-radius:9px;font:inherit;
+      font-size:14px;box-sizing:border-box;margin-top:4px}}
+    input:focus{{outline:2px solid #e8a020;border-color:#e8a020}}
+    .btn{{width:100%;padding:12px;background:linear-gradient(135deg,#c97e1a,#e8a020);color:#fff;
+      border:none;border-radius:10px;font:inherit;font-size:15px;font-weight:700;cursor:pointer;margin-top:8px}}
+    .msg{{font-size:13px;margin-top:10px;padding:10px;border-radius:8px;text-align:center}}
+    .err{{background:#fbe1de;color:#c0392b}}.ok{{background:#e3f6ea;color:#1e8449}}</style></head>
+    <body><div class="rp-card">
+    <img src="/static/logo.png" style="width:48px;margin-bottom:16px" />
+    <h2>🔑 Reset Password</h2>
+    <div id="msg"></div>
+    <label>New Password<input id="np" type="password" placeholder="Min 6 characters" /></label>
+    <label>Confirm Password<input id="cp" type="password" placeholder="Repeat new password" /></label>
+    <button class="btn" id="saveBtn">Reset Password</button>
+    </div>
+    <script>
+    document.getElementById("saveBtn").onclick=async()=>{{
+      const np=document.getElementById("np").value;
+      const cp=document.getElementById("cp").value;
+      const msg=document.getElementById("msg");
+      if(np.length<6){{msg.className="msg err";msg.textContent="Min 6 characters";return;}}
+      if(np!==cp){{msg.className="msg err";msg.textContent="Passwords don't match";return;}}
+      const r=await fetch("/api/reset-password",{{method:"POST",
+        headers:{{"Content-Type":"application/json"}},
+        body:JSON.stringify({{token:"{token}",new_password:np}})}});
+      const d=await r.json();
+      if(r.ok&&d.ok){{msg.className="msg ok";msg.textContent="Password reset! Redirecting…";
+        setTimeout(()=>window.location.href="/login",1500);}}
+      else{{msg.className="msg err";msg.textContent=d.error||"Error";}}
+    }};
+    </script></body></html>"""
+    return HTMLResponse(html)
+
+
+@app.post("/api/reset-password")
+async def api_reset_password(payload: dict):
+    token    = str(payload.get("token", ""))
+    new_pass = str(payload.get("new_password", ""))
+    if len(new_pass) < 6:
+        return JSONResponse({"error": "Password min 6 characters."}, status_code=400)
+    username = db.reset_token_consume(token)
+    if not username:
+        return JSONResponse({"error": "Link expired or invalid. Request a new one."}, status_code=400)
+    users = _load_users()
+    if username not in users:
+        return JSONResponse({"error": "User not found."}, status_code=404)
+    salt = os.urandom(16)
+    users[username]["salt"] = salt.hex()
+    users[username]["hash"] = _hash_pw(new_pass, salt)
+    _save_users(users)
+    return {"ok": True}
+
+
+# --------------------------------------------------------- FEEDBACK (public)
+@app.post("/api/feedback")
+async def api_feedback(request: Request, payload: dict):
+    name    = str(payload.get("name", "")).strip()
+    email   = str(payload.get("email", "")).strip()
+    fb_type = str(payload.get("type", "General")).strip()
+    message = str(payload.get("message", "")).strip()
+    rating  = payload.get("rating")
+    if not name or not message:
+        return JSONResponse({"error": "Name and message are required."}, status_code=400)
+    if not email or not _EMAIL_RE.match(email):
+        return JSONResponse({"error": "Valid email is required."}, status_code=400)
+    if len(message) < 10:
+        return JSONResponse({"error": "Message too short."}, status_code=400)
+    # logged-in user hoy to username capture karo (public endpoint, so read token directly)
+    u = _read_token(request.cookies.get(COOKIE))
+    username = u["username"] if u else ""
+    fb_id = db.feedback_create(name, email, fb_type, message, rating, username=username)
+    admin_email = emailer._CFG.get("admin_email", "")
+    if admin_email:
+        emailer.send_feedback_notification(admin_email, name, email, fb_type, message, fb_id)
+    return {"ok": True, "message": "Thank you for your feedback!"}
+
+
+# --------------------------------------------------------- ADMIN: FEEDBACK TAB
+@app.get("/api/admin/feedback")
+async def admin_feedback(type: str = None):
+    return {"feedback": db.feedback_list(fb_type=type),
+            "types": db.feedback_types()}
+
+
+@app.post("/api/admin/feedback/read")
+async def admin_feedback_read(payload: dict):
+    db.feedback_mark_read(int(payload.get("id", 0)))
+    return {"ok": True}
+
+
+@app.post("/api/admin/feedback/action")
+async def admin_feedback_action(payload: dict):
+    new_val = db.feedback_toggle_action(int(payload.get("id", 0)))
+    return {"ok": True, "action_done": new_val}
+
+
+# --------------------------------------------------------- ADMIN: EMAIL CONFIG
+@app.get("/api/admin/email-status")
+async def admin_email_status():
+    cfg = emailer._CFG  # live config (runtime save karyela)
+    return {
+        "enabled": emailer.is_enabled(),
+        "from_address": cfg.get("from_address", ""),
+        "admin_email": cfg.get("admin_email", ""),
+        "from_name": cfg.get("from_name", ""),
+        "app_password_configured": bool(cfg.get("app_password")),
+    }
+
+
+@app.post("/api/admin/email-config")
+async def admin_email_config(payload: dict):
+    """Admin panel thi Gmail SMTP config save kare — config.yaml touch karva ni jarur nathi."""
+    from_address = str(payload.get("from_address", "")).strip()
+    app_password = str(payload.get("app_password", "")).strip()
+    admin_email  = str(payload.get("admin_email", "")).strip()
+    from_name    = str(payload.get("from_name", "SMVS OCR System")).strip()
+    if not from_address or "@" not in from_address:
+        return JSONResponse({"error": "Valid Gmail address required."}, status_code=400)
+    existing = storage.load_email_config(JOBS) or {}
+    cfg = {
+        "from_address": from_address,
+        "app_password": app_password if app_password else existing.get("app_password", ""),
+        "admin_email": admin_email,
+        "from_name": from_name or "SMVS OCR System",
+    }
+    if not cfg["app_password"]:
+        return JSONResponse({"error": "App Password required."}, status_code=400)
+    storage.save_email_config(JOBS, cfg)
+    emailer.configure(cfg)
+    return {"ok": True}
+
+
+@app.post("/api/admin/email-test")
+async def admin_email_test():
+    """Admin ne j test email moklayo che — connection verify karva mate."""
+    if not emailer.is_enabled():
+        return JSONResponse({"error": "Email not configured yet."}, status_code=400)
+    admin_email = emailer._CFG.get("admin_email", "") or emailer._CFG.get("from_address", "")
+    if not admin_email:
+        return JSONResponse({"error": "No admin email set."}, status_code=400)
+    try:
+        from emailer import _send
+        ok = _send(admin_email, "SMVS OCR — Test Email ✓",
+                   "<h2>Email connection is working! 🎉</h2><p>SMVS OCR email system is configured correctly.</p>",
+                   "Email connection is working! SMVS OCR email system is configured correctly.")
+        if ok:
+            return {"ok": True, "sent_to": admin_email}
+        return JSONResponse({"error": "Send failed — check Gmail address and App Password."}, status_code=400)
+    except Exception as e:
+        return JSONResponse({"error": str(e)[:200]}, status_code=400)
+
+
+
+
+
+@app.post("/api/ping")
+async def api_ping(request: Request):
+    """Heartbeat — frontend e periodically (e.g. every 20-30 sec) call kare jethi
+    live visitor count accurate rahe. Login page thi pan public rite call thai shake."""
+    vid = request.cookies.get(VISITOR_COOKIE)
+    u = _read_token(request.cookies.get(COOKIE))
+    resp = JSONResponse({"ok": True})
+    if not vid:
+        vid = db.new_session_id()
+        resp.set_cookie(VISITOR_COOKIE, vid, max_age=30 * 86400, httponly=True, samesite="lax")
+    try:
+        db.page_view_record(vid, "ping", logged_in=bool(u), ip=_client_ip(request))
+    except Exception:
+        pass
+    return resp
+
+
+@app.get("/api/visitor-count")
+async def api_visitor_count():
+    """Login page mate public endpoint — total site visits batave (no auth needed)."""
+    totals = db.page_view_totals()
+    live = db.live_counts()
+    return {
+        "total_visits": totals["total_views"],
+        "online_now": live["total_online"],
+    }
 
 
 app.mount("/static", StaticFiles(directory=STATIC), name="static")

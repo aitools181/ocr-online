@@ -360,14 +360,39 @@ document.querySelectorAll("input[name=outmode]").forEach(r=>r.addEventListener("
 // ---------- conversion progress bars (per-file + total) ----------
 let convFiles=[], convActive=-1, convStart=0, pagesDoneAll=0, pagesTotalAll=0;
 function fmtSec(s){ s=Math.max(0,Math.round(s)); if(s<60) return s+"s"; const m=Math.floor(s/60); return m+"m "+(s%60)+"s"; }
+const queueBannerEl=$("#queueBanner");
+let _countdownInterval=null;
+let _countdownRemaining=0;
+let _planFiles=[];
+function showQueueBanner(plan){
+  if(!queueBannerEl) return;
+  const ahead=plan.queue_ahead||0;
+  _planFiles=plan.files||[];
+  _countdownRemaining=Math.round(plan.total_estimated_sec||0);
+  if(_countdownInterval) clearInterval(_countdownInterval);
+
+  function render(){
+    if(_countdownRemaining<=0){ queueBannerEl.textContent="⏱ Converting… almost done!"; return; }
+    let msg=`⏱ Estimated time remaining: ${fmtSec(_countdownRemaining)}`;
+    if(ahead>0) msg+=` · ${ahead} job(s) ahead in queue`;
+    queueBannerEl.textContent=msg;
+    _countdownRemaining=Math.max(0,_countdownRemaining-1);
+  }
+  render();
+  queueBannerEl.classList.add("show");
+  _countdownInterval=setInterval(()=>{
+    render();
+    if(_countdownRemaining<=0) clearInterval(_countdownInterval);
+  },1000);
+}
 function buildConvBars(plan){
-  convFiles=plan.map(p=>({name:p.name, total:p.pages_total||0, done:0, state:"queue", sec:null}));
+  convFiles=plan.map(p=>({name:p.name, total:p.pages_total||0, done:0, state:"queue", sec:null, est:p.estimated_sec||null}));
   convActive=-1; convStart=performance.now(); pagesDoneAll=0;
   pagesTotalAll=convFiles.reduce((a,f)=>a+f.total,0);
   uploadProg.hidden=false;
   let html='<div class="up-title">Converting...</div>';
   html+=`<div class="up-row"><span class="up-name">Total</span><div class="up-bar"><i id="cvtotal"></i></div><span class="up-pct" id="cvtotalp">0%</span></div>`;
-  convFiles.forEach((f,i)=>{ html+=`<div class="up-row"><span class="up-name" title="${esc(f.name)}">${esc(f.name)}</span><div class="up-bar"><i id="cv${i}"></i></div><span class="up-pct cv-stat" id="cv${i}p">queue</span></div>`; });
+  convFiles.forEach((f,i)=>{ const estTxt=f.est?` <span class="file-estimate">~${fmtSec(f.est)}</span>`:""; html+=`<div class="up-row"><span class="up-name" title="${esc(f.name)}">${esc(f.name)}${estTxt}</span><div class="up-bar"><i id="cv${i}"></i></div><span class="up-pct cv-stat" id="cv${i}p">queue</span></div>`; });
   uploadProg.innerHTML=html;
 }
 function avgPageMs(){ return pagesDoneAll>0 ? (performance.now()-convStart)/pagesDoneAll : 0; }
@@ -451,7 +476,7 @@ convertBtn.onclick=async ()=>{
 
   function handle(ev){
     if(ev.type==="start"){ JOB=ev.job; sessionJobs.add(ev.job); }
-    else if(ev.type==="plan"){ buildConvBars(ev.files||[]); }
+    else if(ev.type==="plan"){ buildConvBars(ev.files||[]); showQueueBanner(ev); }
     else if(ev.type==="file_start"){ convFileStart(ev.name); logLine(`▶ ${ev.name}  (${(ev.langs||[]).map(cap).join("+")})${ev.pages_total?`  — ${ev.pages_total} page(s)`:""}`); }
     else if(ev.type==="progress"){ convProgress(ev.done,ev.total); }
     else if(ev.type==="log"){ logLine(`    ${ev.msg}`); }
@@ -465,11 +490,22 @@ convertBtn.onclick=async ()=>{
         let html=`<span class="dl-name">${esc(ev.name)}</span>`;
         if(counts) html+=`<span class="badge">${counts}</span>`;
         html+=`<span class="dl-actions">${dlLinks({downloads:ev.downloads})}</span>`;
-        row.innerHTML=html; logLine(`    ✓ done in ${ev.seconds!=null?fmtSec(ev.seconds):"?"}`); }
+        row.innerHTML=html; logLine(`    ✓ done in ${ev.seconds!=null?fmtSec(ev.seconds):"?"}`);
+        // Recalibrate countdown: remaining files na estimated time thi actual time baad karo
+        if(_planFiles && ev.seconds!=null){
+          const doneFile=_planFiles.find(f=>f.name===ev.name);
+          if(doneFile && doneFile.est){
+            const saved=Math.round(doneFile.est - ev.seconds);
+            if(typeof _countdownRemaining!=="undefined") _countdownRemaining=Math.max(0,_countdownRemaining-saved);
+          }
+        }
+      }
       downloadsEl.appendChild(row);
       renderResults();
     }
-    else if(ev.type==="done"){ uploadProg.hidden=true; if(ev.zip){ zipBtn.href=`/api/download/${ev.job}/${encodeURIComponent(ev.zip)}`; zipBtn.setAttribute("download",""); zipBtn.hidden=false; } }
+    else if(ev.type==="done"){
+      if(_countdownInterval){ clearInterval(_countdownInterval); _countdownInterval=null; }
+      if(queueBannerEl) queueBannerEl.classList.remove("show"); uploadProg.hidden=true; if(ev.zip){ zipBtn.href=`/api/download/${ev.job}/${encodeURIComponent(ev.zip)}`; zipBtn.setAttribute("download",""); zipBtn.hidden=false; } }
   }
 };
 
@@ -485,13 +521,100 @@ loadFonts();
     const me=await (await fetch("/api/me")).json();
     if(me&&me.username){
       window.__SMVS_ROLE__ = me.role || "user";   // read by inline devtools-guard script in <head>
+      window.__SMVS_USER__ = me.username;
       $("#uname").textContent="👤 "+me.username;
       if(me.role==="admin") $("#adminLink").hidden=false;
       $("#userbar").hidden=false;
     }
   }catch(e){}
+  finally{
+    const pl=$("#pageLoader"); if(pl) pl.classList.add("loader-hidden");
+  }
 })();
 $("#logoutBtn")&&($("#logoutBtn").onclick=async()=>{
   try{ await fetch("/api/logout",{method:"POST"}); }catch(e){}
   window.location.href="/login";
 });
+
+// ---------- change password (Step 1) ----------
+(function(){
+  const overlay=$("#pwModalOverlay"), openBtn=$("#changePwBtn"), cancelBtn=$("#pwCancelBtn"),
+        saveBtn=$("#pwSaveBtn"), errEl=$("#pwModalErr"), okEl=$("#pwModalOk"),
+        cur=$("#pwCurrent"), nw=$("#pwNew"), cf=$("#pwConfirm");
+  if(!overlay||!openBtn) return;
+  function reset(){ errEl.hidden=true; okEl.hidden=true; cur.value=""; nw.value=""; cf.value=""; }
+  openBtn.onclick=()=>{ reset(); $("#pwModalUser").textContent=window.__SMVS_USER__||""; overlay.hidden=false; cur.focus(); };
+  cancelBtn.onclick=()=>{ overlay.hidden=true; };
+  overlay.addEventListener("click",e=>{ if(e.target===overlay) overlay.hidden=true; });
+  saveBtn.onclick=async()=>{
+    errEl.hidden=true; okEl.hidden=true;
+    if(!cur.value||!nw.value){ errEl.textContent="Badhi field bharo."; errEl.hidden=false; return; }
+    if(nw.value.length<6){ errEl.textContent="New password ochhama ochhu 6 characters nu hovu joiye."; errEl.hidden=false; return; }
+    if(nw.value!==cf.value){ errEl.textContent="New password ane confirm match nathi thata."; errEl.hidden=false; return; }
+    saveBtn.disabled=true; saveBtn.textContent="Saving…";
+    try{
+      const r=await fetch("/api/me/change-password",{
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({current_password:cur.value,new_password:nw.value})
+      });
+      const d=await r.json();
+      if(r.ok&&d.ok){ okEl.textContent="Password successfully badlai gayu!"; okEl.hidden=false;
+        cur.value=""; nw.value=""; cf.value="";
+        setTimeout(()=>{ overlay.hidden=true; },1200);
+      } else { errEl.textContent=d.error||"Password badalva ma error aavi."; errEl.hidden=false; }
+    }catch(e){ errEl.textContent="Network error. Try again."; errEl.hidden=false; }
+    saveBtn.disabled=false; saveBtn.textContent="Save";
+  };
+})();
+
+// ---------- heartbeat ping (live visitor tracking, Step 5) ----------
+setInterval(()=>{ fetch("/api/ping",{method:"POST"}).catch(()=>{}); }, 25000);
+
+// ---------- Feedback Modal ----------
+(function(){
+  const overlay=$("#fbModalOverlay"), openBtn=$("#feedbackBtn"), cancelBtn=$("#fbCancelBtn"),
+        sendBtn=$("#fbSendBtn"), errEl=$("#fbModalErr"), okEl=$("#fbModalOk");
+  if(!overlay||!openBtn) return;
+  let fbRating=0;
+  function resetFb(){ errEl.hidden=true; okEl.hidden=true;
+    document.getElementById("fbName").value="";
+    document.getElementById("fbEmail").value="";
+    document.getElementById("fbMessage").value="";
+    document.getElementById("fbType").selectedIndex=0;
+    fbRating=0; renderStars();
+  }
+  function renderStars(){
+    document.querySelectorAll("#fbStars span").forEach((s,i)=>{
+      s.textContent=i<fbRating?"★":"☆";
+      s.style.color=i<fbRating?"#e8a020":"#ccc";
+    });
+  }
+  document.querySelectorAll("#fbStars span").forEach(s=>{
+    s.onclick=()=>{ fbRating=parseInt(s.dataset.star); renderStars(); };
+    s.onmouseover=()=>{ document.querySelectorAll("#fbStars span").forEach((x,i)=>{ x.textContent=i<parseInt(s.dataset.star)?"★":"☆"; x.style.color=i<parseInt(s.dataset.star)?"#e8a020":"#ccc"; }); };
+    s.onmouseleave=()=>renderStars();
+  });
+  openBtn.onclick=()=>{ resetFb(); overlay.hidden=false; };
+  cancelBtn.onclick=()=>{ overlay.hidden=true; };
+  overlay.addEventListener("click",e=>{ if(e.target===overlay) overlay.hidden=true; });
+  sendBtn.onclick=async()=>{
+    errEl.hidden=true; okEl.hidden=true;
+    const name=document.getElementById("fbName").value.trim();
+    const email=document.getElementById("fbEmail").value.trim();
+    const message=document.getElementById("fbMessage").value.trim();
+    if(!name){ errEl.textContent="Name required."; errEl.hidden=false; return; }
+    if(!email||!email.includes("@")){ errEl.textContent="Valid email required."; errEl.hidden=false; return; }
+    if(message.length<10){ errEl.textContent="Message min 10 characters."; errEl.hidden=false; return; }
+    sendBtn.disabled=true; sendBtn.textContent="Sending…";
+    try{
+      const r=await fetch("/api/feedback",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({name, email,
+          type:document.getElementById("fbType").value, message, rating:fbRating||null})});
+      const d=await r.json();
+      if(r.ok&&d.ok){ okEl.textContent="Thank you for your feedback! 🙏"; okEl.hidden=false;
+        setTimeout(()=>{ overlay.hidden=true; },1500);
+      } else { errEl.textContent=d.error||"Error."; errEl.hidden=false; }
+    }catch{ errEl.textContent="Network error."; errEl.hidden=false; }
+    sendBtn.disabled=false; sendBtn.textContent="Send Feedback";
+  };
+})();

@@ -5,3 +5,30 @@
 admin_password: "Password-=123"
 output_retention_hours: 24
 max_files: 50
+
+# ===== Cloud storage (Step 6) =====
+# Successful upload thaya pachi j local files server parthi remove thay chhe.
+# Upload fail thay to job 'upload_failed' rahe, background retry worker try kare,
+# max_retry_attempts pachi admin dashboard ma "Failed / Pending Uploads" ma dekhay.
+storage:
+  provider: none              # none | google_drive | onedrive
+  max_retry_attempts: 8
+  retry_interval_sec: 180
+  google_drive:
+    service_account_json: /app/secrets/google_service_account.json
+    root_folder_id: "PUT_ORG_SHARED_DRIVE_FOLDER_ID_HERE"
+  onedrive:
+    tenant_id: "PUT_AZURE_TENANT_ID_HERE"
+    client_id: "PUT_APP_REGISTRATION_CLIENT_ID_HERE"
+    client_secret: "PUT_APP_REGISTRATION_CLIENT_SECRET_HERE"
+    drive_id: "PUT_ORG_ONEDRIVE_SHAREPOINT_DRIVE_ID_HERE"
+    root_path: "/SMVS-OCR"
+
+# ===== Email (Gmail App Password) =====
+# Gmail > Settings > Security > 2-Step Verification > App Passwords
+# Generate one for "SMVS OCR" and paste below.
+email:
+  from_address: "smvs.ocr@gmail.com"      # Gmail address jathi email jaay
+  app_password:  "xxxx xxxx xxxx xxxx"    # 16-char App Password (spaces saathe j rakho)
+  from_name:     "SMVS OCR System"
+  admin_email:   "admin@divyajivan.com"   # Signup alerts + feedback notifications jaay tyaare

@@ -573,3 +573,53 @@ body{display:flex;flex-direction:column;min-height:100vh}
 /* ===== col-output-wrap: Action card (step 3) + Output card (step 4) stacked ===== */
 .col-output-wrap{display:flex;flex-direction:column;gap:16px;min-width:0}
 #actionCard .action-row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+
+/* ===== Step 4: page loader overlay ===== */
+.page-loader{
+  position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;
+  background:rgba(15,15,20,.92);transition:opacity .35s ease, visibility .35s ease;
+}
+.page-loader.loader-hidden{opacity:0;visibility:hidden;pointer-events:none}
+.loader-spinner{
+  width:44px;height:44px;border-radius:50%;
+  border:4px solid rgba(255,255,255,.18);border-top-color:#fff;
+  animation:smvs-spin .8s linear infinite;
+}
+@keyframes smvs-spin{to{transform:rotate(360deg)}}
+
+/* ===== Step 1: change-password modal ===== */
+.pw-modal-overlay{
+  position:fixed;inset:0;z-index:9998;display:flex;align-items:center;justify-content:center;
+  background:rgba(0,0,0,.45);
+}
+.pw-modal-overlay[hidden]{display:none}
+.pw-modal-box{
+  background:#fff;border-radius:16px;padding:22px 22px 18px;width:340px;max-width:90vw;
+  height:auto;box-shadow:0 12px 48px rgba(0,0,0,.22);
+}
+.pw-modal-box h3{margin:0 0 10px;font-family:"Sora",sans-serif;font-size:16px;display:flex;align-items:center;gap:8px}
+.pw-modal-box .pw-user{font-size:13px;color:var(--muted);margin:0 0 14px}
+.pw-modal-box label{display:block;margin-bottom:12px}
+.pw-modal-box label > span{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:4px}
+.pw-modal-box input{
+  width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:9px;
+  font:inherit;font-size:13px;box-sizing:border-box;
+}
+.pw-modal-box input:focus{outline:2px solid var(--saffron);outline-offset:1px;border-color:var(--saffron)}
+.pw-modal-actions{display:flex;justify-content:flex-end;gap:10px;margin-top:8px}
+.pw-modal-actions button{font:inherit;font-weight:600;border-radius:9px;padding:9px 16px;cursor:pointer;border:none}
+/* First button in actions = cancel (grey), last = primary (saffron) */
+.pw-modal-actions button:first-child{background:#f3f3f3;color:#444}
+.pw-modal-actions button:first-child:hover{background:#e5e5e5}
+.pw-modal-actions button:last-child{background:var(--saffron);color:#fff}
+.pw-modal-actions button:last-child:hover{filter:brightness(1.05)}
+.pw-modal-err{color:#c0392b;font-size:12.5px;margin-bottom:10px}
+.pw-modal-ok{color:#1e8449;font-size:12.5px;margin-bottom:10px}
+
+/* ===== Step 2/3: queue + estimate display ===== */
+.queue-banner{
+  font-size:12.5px;color:#555;background:#f4f4f6;border-radius:8px;
+  padding:6px 10px;margin-bottom:8px;display:none;
+}
+.queue-banner.show{display:block}
+.file-estimate{font-size:11.5px;color:#777;margin-left:6px}

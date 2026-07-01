@@ -49,43 +49,215 @@
   .modal-box .f{display:flex;flex-direction:column;gap:4px;margin-bottom:10px}
   .modal-box .f span{font-size:12px;font-weight:600;color:var(--muted)}
   .modal-box input{padding:8px 10px;border:1px solid var(--line);border-radius:9px;font:inherit;font-size:13px;width:100%;box-sizing:border-box}
+  /* Generic themed form fields — reused outside modals too (e.g. Cloud Management tab) */
+  .f{display:flex;flex-direction:column;gap:4px;margin-bottom:12px;max-width:480px}
+  .f span{font-size:12px;font-weight:600;color:var(--muted)}
+  .f input,.f select,.f textarea,#cloudPanel select{
+    padding:9px 11px;border:1px solid var(--line);border-radius:9px;font:inherit;font-size:13px;
+    width:100%;box-sizing:border-box;background:#fff;color:var(--ink);appearance:none;
+  }
+  .f select,#cloudPanel select{
+    background-image:url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="6"><path d="M0 0l5 6 5-6z" fill="%236f6980"/></svg>');
+    background-repeat:no-repeat;background-position:right 12px center;padding-right:30px;cursor:pointer;
+  }
+  .f input:focus,.f select:focus,.f textarea:focus{
+    outline:2px solid var(--saffron);outline-offset:1px;border-color:var(--saffron);
+  }
   .modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:6px}
   .btn-cancel{background:#f3f3f3;color:#444;border:none;border-radius:9px;padding:9px 16px;font:inherit;font-weight:600;cursor:pointer}
   .btn-cancel:hover{background:#e5e5e5}
   .mini-reset{background:none;border:1px solid #a3c9e0;color:#1a6fa8;border-radius:7px;padding:4px 10px;font:inherit;font-size:12px;cursor:pointer;margin-right:4px}
   .mini-reset:hover{background:#1a6fa8;color:#fff}
+  /* Dashboard (Step 5) — redesigned */
+  .dash-toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:14px;margin-bottom:22px}
+  .dash-toolbar-title h2{margin:0;font-family:"Sora",sans-serif;font-size:21px}
+  .dash-toolbar-title .muted{font-size:12.5px}
+  .dash-range-group{display:inline-flex;background:#f1ede4;border-radius:11px;padding:4px;gap:2px}
+  .dash-range-group button{
+    border:none;background:transparent;font:inherit;font-size:12.5px;font-weight:600;
+    color:var(--muted);padding:7px 14px;border-radius:8px;cursor:pointer;transition:.15s;
+  }
+  .dash-range-group button:hover{color:var(--saffron2)}
+  .dash-range-group button.active{background:var(--saffron);color:#fff;box-shadow:0 3px 10px rgba(214,131,21,.35)}
+
+  .dash-section{margin-bottom:28px;padding-bottom:22px;border-bottom:1px solid var(--line)}
+  .dash-section:last-child{border-bottom:none;margin-bottom:0;padding-bottom:0}
+  .dash-section-head{
+    font-family:"Sora",sans-serif;font-size:14.5px;font-weight:700;color:#5b4326;
+    margin-bottom:14px;display:flex;align-items:center;gap:8px;
+  }
+
+  .dash-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
+  .dash-card{
+    background:linear-gradient(155deg,#fffdf9,#faf3e6);border:1px solid #f0e2c4;border-radius:14px;
+    padding:16px 16px 14px;transition:.15s;position:relative;overflow:hidden;
+  }
+  .dash-card:hover{transform:translateY(-2px);box-shadow:0 8px 22px rgba(214,131,21,.14)}
+  .dash-card .v{font-family:"Sora",sans-serif;font-size:25px;font-weight:700;color:var(--saffron2);line-height:1.15}
+  .dash-card .l{font-size:11.5px;color:var(--muted);margin-top:4px;font-weight:600;letter-spacing:.01em}
+  .dash-card.good .v{color:#1e8449}
+  .dash-card.bad .v{color:#c0392b}
+  .dash-card.warn .v{color:#9a6a12}
+
+  .dash-live{
+    display:flex;gap:0;flex-wrap:wrap;background:linear-gradient(155deg,#eef9f2,#e6f5ec);
+    border:1px solid #cfe9da;border-radius:14px;overflow:hidden;
+  }
+  .dash-live .live-stat{flex:1;min-width:130px;padding:14px 16px;border-right:1px solid #cfe9da;text-align:center}
+  .dash-live .live-stat:last-child{border-right:none}
+  .dash-live .live-stat .v{font-family:"Sora",sans-serif;font-size:20px;font-weight:700;color:#1e8449}
+  .dash-live .live-stat .l{font-size:11px;color:#5a8a70;margin-top:2px}
+
+  .dash-cols{display:grid;grid-template-columns:1.3fr 1fr;gap:20px}
+  @media(max-width:760px){.dash-cols{grid-template-columns:1fr}}
+  .dash-h3{font-size:13px;margin:0 0 10px;font-weight:700;color:#5b4326;text-transform:uppercase;letter-spacing:.03em}
+  .status-pill{display:inline-block;border-radius:6px;padding:1px 7px;font-size:11px;font-weight:600}
+  .status-completed{background:#e3f6ea;color:#1e8449}
+  .status-queued,.status-processing,.status-uploading{background:#fdecc8;color:#9a6a12}
+  .status-error,.status-upload_failed{background:#fbe1de;color:#c0392b}
+  .srno{color:var(--muted);font-size:11.5px}
+
+  #dashCard .bar-actions input,#dashCard .bar-actions select{
+    padding:9px 12px;border:1px solid var(--line);border-radius:9px;font:inherit;font-size:13px;
+  }
+  #dashCard .bar-actions input{flex:1;min-width:160px}
+  #dashCard table{border-radius:10px;overflow:hidden}
+  #dashCard thead th{background:#faf7f1}
+  .tbl-center th,.tbl-center td{text-align:center !important}
+  .tbl-center td:nth-child(2){font-weight:600}
+  /* Cloud Storage modal */
+  .cloud-status{display:flex;align-items:center;gap:10px;background:#faf7f1;border-radius:10px;
+    padding:10px 14px;font-size:13px}
+  .cloud-status .dot{width:9px;height:9px;border-radius:50%;background:#c0392b;flex-shrink:0}
+  .cloud-status .dot.on{background:#1e8449}
+  .cloud-status .dot.warn{background:#e67e22}
+  .cloud-status-row{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+  .cloud-toggle-btn{
+    flex-shrink:0;border:none;border-radius:9px;padding:10px 16px;font:inherit;font-weight:600;
+    font-size:13px;cursor:pointer;transition:.15s;
+  }
+  .cloud-toggle-btn.deactivate{background:#fbe1de;color:#c0392b}
+  .cloud-toggle-btn.deactivate:hover{background:#c0392b;color:#fff}
+  .cloud-toggle-btn.activate{background:#e3f6ea;color:#1e8449}
+  .cloud-toggle-btn.activate:hover{background:#1e8449;color:#fff}
+  .cloud-fields{margin-top:6px}
+  #cloudModal .f{margin-bottom:10px}
+  /* Tab navigation */
+  .tab-nav{display:flex;gap:6px;background:#f1ede4;border-radius:13px;padding:6px;margin-bottom:20px;
+    flex-wrap:wrap}
+  .tab-nav button{border:none;background:transparent;font:inherit;font-size:13px;font-weight:600;
+    color:var(--muted);padding:11px 14px;border-radius:9px;cursor:pointer;transition:.15s;flex:1;
+    min-width:150px;text-align:center;white-space:nowrap;display:flex;align-items:center;
+    justify-content:center;gap:7px;line-height:1}
+  .tab-nav button:hover{color:var(--saffron2);background:rgba(255,255,255,.5)}
+  .tab-nav button.active{background:#fff;color:var(--saffron2);box-shadow:0 3px 10px rgba(0,0,0,.08)}
+  .tab-panel[hidden]{display:none}
+  @media(max-width:680px){.tab-nav{flex-direction:column}.tab-nav button{min-width:0}}
 </style>
 </head>
 <body>
 <div class="admin-wrap">
   <div class="admin-head">
     <img src="/static/logo.png" alt="SMVS" />
-    <div><h1>SMVS OCR — Admin</h1><div class="sub">Users, fonts &amp; stored jobs</div><div class="sub" id="versionBadge" style="margin-top:3px;font-size:11px;color:#aaa;"></div></div>
+    <div><h1>SMVS OCR — Admin</h1><div class="sub">Dashboard, users, fonts, jobs &amp; cloud storage</div><div class="sub" id="versionBadge" style="margin-top:3px;font-size:11px;color:#aaa;"></div></div>
     <span class="spacer"></span>
     <a href="/">← App</a>
     <button id="logoutBtn" type="button">Logout</button>
   </div>
 
+  <div class="tab-nav" id="adminTabNav">
+    <button data-tab="dashboard" class="active" type="button">📊 Dashboard</button>
+    <button data-tab="users" type="button">👤 User Management</button>
+    <button data-tab="fonts" type="button">🔤 Uploaded Fonts</button>
+    <button data-tab="jobs" type="button">🗂️ Stored Jobs</button>
+    <button data-tab="cloud" type="button">☁️ Cloud Management</button>
+    <button data-tab="feedback" type="button">💬 Feedback</button>
+    <button data-tab="email" type="button">✉️ Email Settings</button>
+  </div>
+
+  <!-- Dashboard (Step 5) -->
+  <div class="card tab-panel" id="dashCard" data-panel="dashboard">
+    <div class="dash-toolbar">
+      <div class="dash-toolbar-title">
+        <h2>📊 Dashboard</h2>
+        <span class="muted">Overview of all OCR activity</span>
+      </div>
+      <div class="dash-range-group" id="dashRangeGroup">
+        <button data-range="today" type="button">Today</button>
+        <button data-range="15d" type="button">15 Days</button>
+        <button data-range="month" type="button" class="active">1 Month</button>
+        <button data-range="6m" type="button">6 Months</button>
+        <button data-range="all" type="button">All Time</button>
+      </div>
+    </div>
+
+    <div class="dash-section">
+      <div class="dash-section-head">📦 Job Overview</div>
+      <div id="dashSummary" class="dash-cards"></div>
+    </div>
+
+    <div class="dash-section">
+      <div class="dash-section-head">🟢 Live Activity</div>
+      <div id="dashLive" class="dash-live"></div>
+    </div>
+
+    <div class="dash-section">
+      <div class="dash-section-head">👥 User Reports</div>
+      <h3 class="dash-h3">User-wise Summary</h3>
+      <div id="dashUserwise"></div>
+      <h3 class="dash-h3" style="margin-top:20px">⚠️ Failed / Pending Uploads</h3>
+      <div id="dashFailed"></div>
+    </div>
+
+    <div class="dash-section">
+      <div class="dash-section-head">🔐 Security &amp; Access</div>
+      <h3 class="dash-h3">Recent Logins</h3>
+      <div id="dashLogins"></div>
+    </div>
+
+    <div class="dash-section">
+      <div class="dash-section-head">🔍 Job Search</div>
+      <div class="bar-actions">
+        <input id="jobSearch" type="text" placeholder="Filename, username..." />
+        <select id="jobStatusFilter">
+          <option value="">All statuses</option>
+          <option value="completed">Completed</option>
+          <option value="queued">Queued</option>
+          <option value="processing">Processing</option>
+          <option value="upload_failed">Upload Failed</option>
+          <option value="error">Error</option>
+        </select>
+        <button id="jobSearchBtn" class="btn-ghost">Search</button>
+      </div>
+      <div id="dashJobs"></div>
+    </div>
+  </div>
+
   <!-- Users -->
-  <div class="card">
-    <div class="card-head"><h2>Users</h2></div>
+  <div class="card tab-panel" id="usersPanel" data-panel="users" hidden>
+    <div class="card-head"><h2>👤 User Management</h2></div>
     <div class="userform">
-      <label class="f"><span>Username</span><input id="nuUser" type="text" placeholder="e.g. ramesh" /></label>
-      <label class="f"><span>Password</span><input id="nuPass" type="text" placeholder="min 4 chars" /></label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
+        <label class="f"><span>First Name</span><input id="nuFname" type="text" placeholder="First name" /></label>
+        <label class="f"><span>Last Name</span><input id="nuLname" type="text" placeholder="Last name" /></label>
+        <label class="f"><span>Username (min 5)</span><input id="nuUser" type="text" placeholder="e.g. ramesh01" /></label>
+        <label class="f"><span>Email ID</span><input id="nuEmail" type="email" placeholder="user@email.com" /></label>
+        <label class="f"><span>Password (min 4)</span><input id="nuPass" type="text" placeholder="min 4 chars" /></label>
+      </div>
       <button id="addUserBtn" class="add-btn" type="button">+ Create User</button>
     </div>
     <div id="usersWrap"></div>
   </div>
 
   <!-- Fonts -->
-  <div class="card">
-    <div class="card-head"><h2>Uploaded Fonts</h2></div>
+  <div class="card tab-panel" id="fontsPanel" data-panel="fonts" hidden>
+    <div class="card-head"><h2>🔤 Uploaded Fonts</h2></div>
     <div id="fontsWrap"></div>
   </div>
 
   <!-- Jobs -->
-  <div class="card">
-    <div class="card-head"><h2>Stored Jobs</h2></div>
+  <div class="card tab-panel" id="jobsPanel" data-panel="jobs" hidden>
+    <div class="card-head"><h2>🗂️ Stored Jobs</h2></div>
     <div class="bar-actions">
       <label class="muted"><input type="checkbox" id="selAll" /> Select all</label>
       <span id="meta" class="muted"></span>
@@ -95,6 +267,120 @@
     </div>
     <div id="tableWrap"></div>
   </div>
+
+  <!-- Feedback Tab -->
+  <div class="card tab-panel" id="feedbackPanel" data-panel="feedback" hidden>
+    <div class="card-head"><h2>💬 Feedback</h2></div>
+    <div id="feedbackWrap"></div>
+  </div>
+
+  <!-- Cloud Management -->
+  <div class="card tab-panel" id="cloudPanel" data-panel="cloud" hidden>
+    <div class="card-head"><h2>☁️ Cloud Management</h2></div>
+
+    <!-- Status bar with active/inactive toggle -->
+    <div class="cloud-status-row">
+      <div id="cloudStatusBox" class="cloud-status" style="flex:1"></div>
+      <button id="cloudToggleBtn" type="button" class="cloud-toggle-btn" hidden>Deactivate</button>
+    </div>
+
+    <div class="f">
+      <span>Provider</span>
+      <select id="cloudProvider">
+        <option value="none">None (server-local only)</option>
+        <option value="google_drive">Google Drive</option>
+        <option value="onedrive">OneDrive / SharePoint</option>
+      </select>
+    </div>
+
+    <div id="cloudFieldsGoogle" class="cloud-fields" hidden>
+      <div class="f"><span>Root Folder ID (Shared Drive)</span>
+        <input id="gdRootFolderId" type="text" placeholder="e.g. 1AbCdEfGhIjKlMnOpQ" /></div>
+      <div class="f"><span>Service Account Client Email</span>
+        <input id="gdClientEmail" type="text" placeholder="smvs-ocr@project-id.iam.gserviceaccount.com" /></div>
+      <div class="f"><span>Project ID</span>
+        <input id="gdProjectId" type="text" placeholder="your-gcp-project-id" /></div>
+      <div class="f"><span>Private Key (paste from JSON — begins with -----BEGIN PRIVATE KEY-----)</span>
+        <textarea id="gdPrivateKey" rows="4" placeholder="-----BEGIN PRIVATE KEY-----&#10;...&#10;-----END PRIVATE KEY-----"
+          style="width:100%;box-sizing:border-box;padding:8px 10px;border:1.5px solid var(--line);border-radius:9px;font:ui-monospace,monospace;font-size:12px;resize:vertical"></textarea></div>
+      <div class="muted" id="gdExistingNote" style="font-size:11.5px;margin-top:-4px"></div>
+    </div>
+
+    <div id="cloudFieldsOneDrive" class="cloud-fields" hidden>
+      <div class="f"><span>Azure Tenant ID</span><input id="odTenantId" type="text" /></div>
+      <div class="f"><span>App Client ID</span><input id="odClientId" type="text" /></div>
+      <div class="f"><span>Client Secret</span><input id="odClientSecret" type="password" placeholder="Leave blank to keep existing" /></div>
+      <div class="f"><span>Drive ID (SharePoint/OneDrive)</span><input id="odDriveId" type="text" /></div>
+      <div class="f"><span>Root Path</span><input id="odRootPath" type="text" placeholder="/SMVS-OCR" /></div>
+    </div>
+
+    <div id="cloudConfigErr" class="modal-err" style="display:none"></div>
+    <div id="cloudConfigOk" class="modal-ok" style="display:none"></div>
+
+    <div class="modal-actions" style="justify-content:flex-start">
+      <button class="mini-reset" id="cloudTestBtn" type="button">Test Connection</button>
+      <button class="add-btn" id="cloudSaveBtn" type="button">Save &amp; Connect</button>
+    </div>
+
+    <h3 class="dash-h3" style="margin-top:24px">📋 All Jobs — Upload & Server Status</h3>
+    <div id="cloudAllJobsWrap"></div>
+
+    <h3 class="dash-h3" style="margin-top:24px">⚠️ Pending / Failed Uploads</h3>
+    <div id="cloudPendingWrap"></div>
+  </div>
+
+  <!-- Email Settings Tab -->
+  <div class="card tab-panel" id="emailPanel" data-panel="email" hidden>
+    <div class="card-head"><h2>✉️ Email Settings</h2></div>
+
+    <div id="emailStatusBox" class="cloud-status" style="margin-bottom:16px"></div>
+
+    <div style="max-width:480px">
+      <div class="f">
+        <span>Gmail Address (from address)</span>
+        <input id="emFromAddress" type="email" placeholder="smvs.ocr@gmail.com" />
+      </div>
+      <div class="f">
+        <span>Gmail App Password
+          <a href="https://myaccount.google.com/apppasswords" target="_blank"
+            style="color:var(--saffron2);font-weight:400;margin-left:6px;font-size:11px">
+            How to get? ↗
+          </a>
+        </span>
+        <div style="position:relative;display:flex;align-items:center">
+          <input id="emAppPassword" type="password" placeholder="xxxx xxxx xxxx xxxx (leave blank to keep existing)"
+            style="flex:1;padding-right:40px" />
+          <button type="button" id="emEyeBtn"
+            style="position:absolute;right:10px;background:none;border:none;cursor:pointer;color:#aaa;font-size:16px">👁</button>
+        </div>
+      </div>
+      <div class="f">
+        <span>Sender Name (shown in email)</span>
+        <input id="emFromName" type="text" placeholder="SMVS OCR System" />
+      </div>
+      <div class="f">
+        <span>Admin Email (receives signup alerts & feedback notifications)</span>
+        <input id="emAdminEmail" type="email" placeholder="admin@divyajivan.com" />
+      </div>
+
+      <div id="emailConfigErr" class="modal-err" style="display:none;margin-bottom:10px"></div>
+      <div id="emailConfigOk"  class="modal-ok"  style="display:none;margin-bottom:10px"></div>
+
+      <div style="display:flex;gap:10px;margin-top:4px">
+        <button class="mini-reset" id="emailTestBtn" type="button">📨 Send Test Email</button>
+        <button class="add-btn"    id="emailSaveBtn" type="button">Save Settings</button>
+      </div>
+
+      <div style="margin-top:20px;background:#faf7f1;border-radius:10px;padding:14px 16px;font-size:13px;color:#666">
+        <b>Setup Guide:</b><br>
+        1. Gmail account ma <b>2-Step Verification</b> enable karo<br>
+        2. <a href="https://myaccount.google.com/apppasswords" target="_blank" style="color:var(--saffron2)">App Passwords</a> page par jao → App name: <code>SMVS OCR</code> → <b>Generate</b><br>
+        3. 16-character password uppar paste karo<br>
+        4. <b>Save Settings</b> → <b>Send Test Email</b> thi verify karo
+      </div>
+    </div>
+  </div>
+
 </div>
 <div id="toasts" class="toasts" aria-live="polite"></div>
 
@@ -114,6 +400,17 @@
     <div class="modal-actions">
       <button class="btn-cancel" id="resetCancelBtn" type="button">Cancel</button>
       <button class="add-btn" id="resetSaveBtn" type="button">Save Password</button>
+    </div>
+  </div>
+</div>
+
+<!-- Feedback View Modal -->
+<div class="modal-overlay" id="fbViewModal">
+  <div class="modal-box" style="width:440px">
+    <h3>💬 Feedback Details</h3>
+    <div id="fbViewBody" style="font-size:14px;color:#333"></div>
+    <div class="modal-actions">
+      <button class="btn-cancel" id="fbViewCloseBtn" type="button">Close</button>
     </div>
   </div>
 </div>
