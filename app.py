@@ -267,7 +267,8 @@ app = FastAPI(title="SMVS OCR")
 _PUBLIC = {"/login", "/api/login", "/health", "/favicon.ico", "/api/visitor-count",
            "/api/signup", "/api/check-username", "/api/approve-user",
            "/reset-password", "/api/forgot-password", "/api/reset-password",
-           "/api/feedback", "/api/ping", "/api/track-view"}
+           "/api/feedback", "/api/ping", "/api/track-view",
+           "/reject-user", "/api/reject-user"}
 
 
 @app.middleware("http")
@@ -771,9 +772,11 @@ async def admin_users(request: Request):
                     "status": "active" if u.get("active", True) else "inactive"})
     pending = db.pending_user_get_all()
     for p in pending:
+        st = p.get("status", "pending")
         out.append({"username": p["username"], "role": "user", "builtin": False,
                     "email": p["email"], "emails": [], "first_name": p["first_name"],
-                    "last_name": p["last_name"], "status": "pending"})
+                    "last_name": p["last_name"], "status": st,
+                    "reject_reason": p.get("reject_reason", "") if st == "rejected" else ""})
     # roles list for the role-assign dropdown (superadmin excluded)
     roles = [r["name"] for r in db.role_list()]
     return {"users": out, "roles": roles}
@@ -1228,51 +1231,131 @@ async def api_signup(request: Request, payload: dict):
     db.pending_user_create(username, email, first_name, last_name, salt.hex(), pw_hash, token)
     base = str(request.base_url).rstrip("/")
     approve_link = f"{base}/api/approve-user?token={token}"
+    reject_link  = f"{base}/reject-user?token={token}"
     emailer.send_signup_verification(email, first_name, username, approve_link)
     admin_email = emailer._CFG.get("admin_email", "")
     if admin_email:
         emailer.send_admin_approval_request(admin_email, first_name, last_name,
-                                             username, email, approve_link)
+                                             username, email, approve_link, reject_link)
     return {"ok": True, "message": "Signup successful! Check your email. Awaiting admin approval."}
 
 
 # --------------------------------------------------------- APPROVE USER (email link + admin UI)
+def _link_result_page(title, message, success):
+    color = "#1e8449" if success else "#c0392b"
+    return f"""<html><head><title>{title}</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1"/>
+    <style>body{{font-family:Inter,Arial,sans-serif;text-align:center;padding:60px 20px;background:#f5f0e8}}
+    .box{{background:#fff;border-radius:16px;padding:40px;display:inline-block;box-shadow:0 4px 24px rgba(0,0,0,.1);max-width:400px}}
+    h2{{color:{color};margin:0 0 10px}}a{{color:#c97e1a;text-decoration:none;font-weight:600}}
+    p{{color:#666}}</style></head>
+    <body><div class="box"><h2>{title}</h2>
+    <p>{message}</p>
+    <a href="/admin">← Go to Admin Panel</a></div></body></html>"""
+
+
 @app.get("/api/approve-user")
 async def api_approve_user(token: str = ""):
     pending = db.pending_user_get(token)
     if not pending:
-        return HTMLResponse("<h2>Invalid or expired approval link.</h2>", status_code=400)
+        return HTMLResponse(_link_result_page("Invalid Link", "This approval link is invalid.", False), status_code=400)
+    if pending.get("token_used"):
+        return HTMLResponse(_link_result_page("Link Already Used",
+            "This link has already been used. The request was already processed.", False), status_code=400)
+    if pending.get("status") == "rejected":
+        return HTMLResponse(_link_result_page("Already Rejected",
+            "This request was already rejected and cannot be approved.", False), status_code=400)
     users = _load_users()
     if pending["username"] not in users:
         users[pending["username"]] = {
             "salt": pending["salt"], "hash": pending["hash"], "role": "user",
             "email": pending["email"], "first_name": pending["first_name"],
-            "last_name": pending["last_name"],
+            "last_name": pending["last_name"], "active": True,
         }
         _save_users(users)
-    db.pending_user_delete(pending["username"])
+    db.pending_user_delete(pending["username"])   # approved → moves to real users, pending record removed
     emailer.send_approval_notification(pending["email"], pending["first_name"], pending["username"])
-    return HTMLResponse("""<html><head><title>User Approved</title>
-    <style>body{font-family:sans-serif;text-align:center;padding:60px;background:#f5f0e8}
-    .box{background:#fff;border-radius:16px;padding:40px;display:inline-block;box-shadow:0 4px 24px rgba(0,0,0,.1)}
-    h2{color:#1e8449}a{color:#c97e1a}</style></head>
-    <body><div class="box"><h2>✅ User Approved!</h2>
-    <p>The user has been notified via email.</p>
-    <a href="/admin">← Go to Admin Panel</a></div></body></html>""")
+    return HTMLResponse(_link_result_page("✅ User Approved!",
+        "The user has been notified via email.", True))
+
+
+@app.get("/reject-user", response_class=HTMLResponse)
+async def reject_user_page(token: str = ""):
+    """Email thi reject — reason puchhta page batave."""
+    pending = db.pending_user_get(token)
+    if not pending:
+        return HTMLResponse(_link_result_page("Invalid Link", "This link is invalid.", False), status_code=400)
+    if pending.get("token_used"):
+        return HTMLResponse(_link_result_page("Link Already Used",
+            "This link has already been used.", False), status_code=400)
+    html = f"""<!DOCTYPE html><html><head><title>Reject User · SMVS OCR</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1"/>
+    <style>body{{font-family:Inter,Arial,sans-serif;background:#f5f0e8;display:flex;align-items:center;
+      justify-content:center;min-height:100vh;margin:0}}
+    .card{{background:#fff;border-radius:16px;padding:34px;width:min(420px,92vw);box-shadow:0 8px 32px rgba(0,0,0,.12)}}
+    h2{{font-size:19px;margin:0 0 6px;color:#2c2c4a}}
+    .u{{background:#faf7f1;border-radius:10px;padding:12px 16px;margin:14px 0}}
+    label{{font-size:12px;font-weight:600;color:#777;display:block;margin-bottom:6px}}
+    textarea{{width:100%;box-sizing:border-box;padding:10px 12px;border:1.5px solid #e8dfc8;border-radius:9px;
+      font:inherit;font-size:14px;resize:vertical;min-height:90px}}
+    textarea:focus{{outline:none;border-color:#e74c3c;box-shadow:0 0 0 3px rgba(231,76,60,.12)}}
+    .btn{{width:100%;padding:12px;background:#e74c3c;color:#fff;border:none;border-radius:10px;
+      font:inherit;font-size:15px;font-weight:700;cursor:pointer;margin-top:14px}}
+    .msg{{font-size:13px;margin-top:10px;padding:10px;border-radius:8px;text-align:center;display:none}}</style></head>
+    <body><div class="card">
+    <h2>✗ Reject User Request</h2>
+    <div class="u"><div style="font-size:12px;color:#888">User</div>
+      <div style="font-size:16px;font-weight:700;color:#2c2c4a">{pending['first_name']} {pending['last_name']} ({pending['username']})</div></div>
+    <label>Reason for rejection (admin record only — NOT sent to user)</label>
+    <textarea id="reason" placeholder="e.g. Not a recognized member, duplicate account..."></textarea>
+    <div id="msg" class="msg"></div>
+    <button class="btn" id="btn">Confirm Reject</button>
+    </div>
+    <script>
+    document.getElementById("btn").onclick=async()=>{{
+      const reason=document.getElementById("reason").value.trim();
+      const msg=document.getElementById("msg");
+      if(!reason){{msg.style.display="block";msg.style.background="#fbe1de";msg.style.color="#c0392b";msg.textContent="Please enter a reason.";return;}}
+      const r=await fetch("/api/reject-user",{{method:"POST",headers:{{"Content-Type":"application/json"}},
+        body:JSON.stringify({{token:"{token}",reason}})}});
+      const d=await r.json();
+      msg.style.display="block";
+      if(r.ok&&d.ok){{msg.style.background="#e3f6ea";msg.style.color="#1e8449";msg.textContent="User rejected. Notification sent.";
+        document.getElementById("btn").disabled=true;}}
+      else{{msg.style.background="#fbe1de";msg.style.color="#c0392b";msg.textContent=d.error||"Error";}}
+    }};
+    </script></body></html>"""
+    return HTMLResponse(html)
+
+
+@app.post("/api/reject-user")
+async def api_reject_user_email(payload: dict):
+    """Email-link reject submit (public, token-gated)."""
+    token  = str(payload.get("token", ""))
+    reason = str(payload.get("reason", "")).strip()
+    pending = db.pending_user_get(token)
+    if not pending:
+        return JSONResponse({"error": "Invalid link."}, status_code=400)
+    if pending.get("token_used"):
+        return JSONResponse({"error": "This link has already been used."}, status_code=400)
+    if not reason:
+        return JSONResponse({"error": "Reason required."}, status_code=400)
+    db.pending_user_mark_rejected(pending["username"], reason)
+    emailer.send_rejection_notification(pending["email"], pending["first_name"], pending["username"])
+    return {"ok": True}
 
 
 @app.post("/api/admin/users/approve")
 async def admin_approve_user(payload: dict):
     username = str(payload.get("username", "")).strip()
-    pending_list = db.pending_user_get_all()
-    pending = next((p for p in pending_list if p["username"] == username), None)
-    if not pending:
+    pending = db.pending_user_get_by_name(username)
+    if not pending or pending.get("status") != "pending":
         return JSONResponse({"error": "Pending user not found."}, status_code=404)
     users = _load_users()
     users[username] = {
         "salt": pending["salt"], "hash": pending["hash"], "role": "user",
         "email": pending["email"], "first_name": pending["first_name"],
-        "last_name": pending["last_name"],
+        "last_name": pending["last_name"], "active": True,
     }
     _save_users(users)
     db.pending_user_delete(username)
@@ -1282,6 +1365,22 @@ async def admin_approve_user(payload: dict):
 
 @app.post("/api/admin/users/reject")
 async def admin_reject_user(payload: dict):
+    """Admin UI reject — reason store thay, user ne notification jaay (reason vagar)."""
+    username = str(payload.get("username", "")).strip()
+    reason   = str(payload.get("reason", "")).strip()
+    if not reason:
+        return JSONResponse({"error": "Rejection reason required."}, status_code=400)
+    pending = db.pending_user_get_by_name(username)
+    if not pending:
+        return JSONResponse({"error": "Pending user not found."}, status_code=404)
+    db.pending_user_mark_rejected(username, reason)
+    emailer.send_rejection_notification(pending["email"], pending["first_name"], username)
+    return {"ok": True}
+
+
+@app.post("/api/admin/users/delete-rejected")
+async def admin_delete_rejected(payload: dict):
+    """Rejected record ne kaadhi nakhvu (cleanup)."""
     username = str(payload.get("username", "")).strip()
     db.pending_user_delete(username)
     return {"ok": True}
@@ -1450,6 +1549,13 @@ async def admin_email_config(payload: dict):
     from_name    = str(payload.get("from_name", "SMVS OCR System")).strip()
     if not from_address or "@" not in from_address:
         return JSONResponse({"error": "Valid Gmail address required."}, status_code=400)
+    # Multiple admin emails support — comma/semicolon separated. Validate each, normalize to comma-separated.
+    if admin_email:
+        parts = [e.strip() for e in admin_email.replace(";", ",").split(",") if e.strip()]
+        bad = [e for e in parts if not _EMAIL_RE.match(e)]
+        if bad:
+            return JSONResponse({"error": f"Invalid email(s): {', '.join(bad)}"}, status_code=400)
+        admin_email = ", ".join(parts)
     existing = storage.load_email_config(JOBS) or {}
     cfg = {
         "from_address": from_address,

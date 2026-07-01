@@ -87,14 +87,17 @@ def _init():
             );
 
             CREATE TABLE IF NOT EXISTS pending_users (
-                username    TEXT PRIMARY KEY,
-                email       TEXT NOT NULL,
-                first_name  TEXT NOT NULL,
-                last_name   TEXT NOT NULL,
-                salt        TEXT NOT NULL,
-                hash        TEXT NOT NULL,
-                token       TEXT NOT NULL,
-                created_at  REAL NOT NULL
+                username      TEXT PRIMARY KEY,
+                email         TEXT NOT NULL,
+                first_name    TEXT NOT NULL,
+                last_name     TEXT NOT NULL,
+                salt          TEXT NOT NULL,
+                hash          TEXT NOT NULL,
+                token         TEXT NOT NULL,
+                status        TEXT NOT NULL DEFAULT 'pending',
+                reject_reason TEXT,
+                token_used    INTEGER NOT NULL DEFAULT 0,
+                created_at    REAL NOT NULL
             );
 
             CREATE TABLE IF NOT EXISTS password_reset_tokens (
@@ -141,6 +144,13 @@ def _migrate():
         jcols = {r[1] for r in _conn.execute("PRAGMA table_info(jobs)").fetchall()}
         if "failed_pages" not in jcols:
             _conn.execute("ALTER TABLE jobs ADD COLUMN failed_pages INTEGER DEFAULT 0")
+        pcols = {r[1] for r in _conn.execute("PRAGMA table_info(pending_users)").fetchall()}
+        if "status" not in pcols:
+            _conn.execute("ALTER TABLE pending_users ADD COLUMN status TEXT NOT NULL DEFAULT 'pending'")
+        if "reject_reason" not in pcols:
+            _conn.execute("ALTER TABLE pending_users ADD COLUMN reject_reason TEXT")
+        if "token_used" not in pcols:
+            _conn.execute("ALTER TABLE pending_users ADD COLUMN token_used INTEGER NOT NULL DEFAULT 0")
         _conn.commit()
 
 
@@ -415,8 +425,8 @@ def pending_user_create(username, email, first_name, last_name, salt, pw_hash, t
     with _lock:
         _conn.execute(
             """INSERT OR REPLACE INTO pending_users
-               (username,email,first_name,last_name,salt,hash,token,created_at)
-               VALUES (?,?,?,?,?,?,?,?)""",
+               (username,email,first_name,last_name,salt,hash,token,status,token_used,created_at)
+               VALUES (?,?,?,?,?,?,?,'pending',0,?)""",
             (username, email, first_name, last_name, salt, pw_hash, token, time.time()),
         )
         _conn.commit()
@@ -426,6 +436,29 @@ def pending_user_get(token):
     with _lock:
         row = _conn.execute("SELECT * FROM pending_users WHERE token=?", (token,)).fetchone()
     return dict(row) if row else None
+
+
+def pending_user_get_by_name(username):
+    with _lock:
+        row = _conn.execute("SELECT * FROM pending_users WHERE username=?", (username,)).fetchone()
+    return dict(row) if row else None
+
+
+def pending_user_mark_token_used(username):
+    """One-time token — mark used so link can't work again (point 5)."""
+    with _lock:
+        _conn.execute("UPDATE pending_users SET token_used=1 WHERE username=?", (username,))
+        _conn.commit()
+
+
+def pending_user_mark_rejected(username, reason):
+    """Keep the record with status=rejected + reason, mark token used."""
+    with _lock:
+        _conn.execute(
+            "UPDATE pending_users SET status='rejected', reject_reason=?, token_used=1 WHERE username=?",
+            (reason or "", username),
+        )
+        _conn.commit()
 
 
 def pending_user_get_all():
@@ -444,7 +477,10 @@ def username_taken(username, users_dict):
     if username in users_dict:
         return True
     with _lock:
-        row = _conn.execute("SELECT 1 FROM pending_users WHERE username=?", (username,)).fetchone()
+        # rejected users don't block re-signup; only active-pending do
+        row = _conn.execute(
+            "SELECT 1 FROM pending_users WHERE username=? AND status='pending'", (username,)
+        ).fetchone()
     return row is not None
 
 

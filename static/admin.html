@@ -412,8 +412,9 @@
         <input id="emFromName" type="text" placeholder="SMVS OCR System" />
       </div>
       <div class="f">
-        <span>Admin Email (receives signup alerts & feedback notifications)</span>
-        <input id="emAdminEmail" type="email" placeholder="admin@divyajivan.com" />
+        <span>Admin Email(s) (receives signup alerts & feedback notifications)</span>
+        <input id="emAdminEmail" type="text" placeholder="admin1@divyajivan.com, admin2@divyajivan.com" />
+        <div class="muted" style="font-size:11.5px;margin-top:5px">Multiple emails? Comma (,) thi separate karo — badha admins ne alert jashe.</div>
       </div>
 
       <div id="emailConfigErr" class="modal-err" style="display:none;margin-bottom:10px"></div>
@@ -503,6 +504,33 @@
     <div class="pw-modal-actions">
       <button type="button" id="rmCancelBtn">Cancel</button>
       <button type="button" id="rmSaveBtn">Save Role</button>
+    </div>
+  </div>
+</div>
+
+<!-- Reject Reason Modal (create-user modal style) -->
+<div class="modal-overlay" id="rejectModal">
+  <div class="modal-box um-box" style="width:400px">
+    <h3>✗ Reject User Request</h3>
+    <div id="rejectModalErr" class="modal-err" style="display:none"></div>
+    <p style="font-size:13px;color:#666;margin:0 0 14px">User: <b id="rejectUserName"></b></p>
+    <label class="um-field"><span>Reason for rejection<i class="req">*</i> <span style="font-weight:400;text-transform:none;color:#999">(admin record only — user ne NA jaay)</span></span>
+      <textarea id="rejectReason" rows="4" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1.5px solid #e8dfc8;border-radius:9px;font:inherit;font-size:14px;resize:vertical"></textarea>
+    </label>
+    <div class="pw-modal-actions">
+      <button type="button" id="rejectCancelBtn">Cancel</button>
+      <button type="button" id="rejectConfirmBtn">Confirm Reject</button>
+    </div>
+  </div>
+</div>
+
+<!-- View Reject Reason Modal -->
+<div class="modal-overlay" id="reasonViewModal">
+  <div class="modal-box" style="width:400px">
+    <h3>📋 Rejection Reason</h3>
+    <div id="reasonViewBody" style="font-size:14px;color:#333"></div>
+    <div class="pw-modal-actions">
+      <button type="button" id="reasonViewCloseBtn">Close</button>
     </div>
   </div>
 </div>

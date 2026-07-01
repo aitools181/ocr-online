@@ -30,19 +30,18 @@ function renderUsers(){
   const wrap=$("#usersWrap");
   const us=_usersData;
   if(!us.length){ wrap.innerHTML='<div class="empty">No users yet.</div>'; return; }
-  const total=us.length;
-  const pages=Math.max(1,Math.ceil(total/_userPageSize));
-  if(_userPage>pages)_userPage=pages;
-  const start=(_userPage-1)*_userPageSize;
-  const pageItems=us.slice(start,start+_userPageSize);
-  let h='<div style="overflow-x:auto"><table><thead><tr><th>Username</th><th>First Name</th><th>Last Name</th><th>Email</th><th>Role</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead><tbody>';
-  pageItems.forEach(u=>{
+  wrap.innerHTML='<div id="usersTableWrap"></div>';
+  const rows=us.map(u=>{
     const role=`<span class="pill-role ${u.role==='admin'?'pill-admin':''}">${esc(u.role)}</span>`;
     let statusPill, act;
     if(u.status==='pending'){
       statusPill=`<span class="status-pill status-queued">⏳ Pending</span>`;
       act=`<button class="add-btn" style="padding:5px 10px;font-size:12px" data-approve-user="${esc(u.username)}">✅ Approve</button>`+
           `<button class="mini-danger" data-reject-user="${esc(u.username)}">✗ Reject</button>`;
+    } else if(u.status==='rejected'){
+      statusPill=`<span class="status-pill status-error">🚫 Rejected</span>`;
+      act=`<button class="mini-reset" data-reason-view="${esc(u.username)}" title="View rejection reason">📋 Reason</button>`+
+          `<button class="mini-danger" data-delrej-user="${esc(u.username)}">Delete</button>`;
     } else {
       statusPill=u.status==='inactive'
         ? `<span class="status-pill status-error">Inactive</span>`
@@ -53,31 +52,43 @@ function renderUsers(){
           `<button class="mini-reset" data-reset-user="${esc(u.username)}" title="Password Reset">🔑</button>`+
           `<button class="mini-danger" data-del-user="${esc(u.username)}">Delete</button>`;
     }
-    h+=`<tr><td><b>${esc(u.username)}</b></td><td>${esc(u.first_name||'—')}</td><td>${esc(u.last_name||'—')}</td><td class="muted">${esc(u.email||'—')}</td><td>${role}</td><td>${statusPill}</td><td style="text-align:right;white-space:nowrap">${act}</td></tr>`;
+    return `<tr><td><b>${esc(u.username)}</b></td><td>${esc(u.first_name||'—')}</td><td>${esc(u.last_name||'—')}</td><td class="muted">${esc(u.email||'—')}</td><td>${role}</td><td>${statusPill}</td><td style="text-align:right;white-space:nowrap">${act}</td></tr>`;
   });
-  h+='</tbody></table></div>';
-  h+=paginationBar(total,_userPage,_userPageSize,'user');
-  wrap.innerHTML=h;
-  bindPagination('user',(p,s)=>{_userPage=p;_userPageSize=s;renderUsers();});
-  wrap.querySelectorAll("[data-del-user]").forEach(b=>b.onclick=()=>deleteUser(b.getAttribute("data-del-user")));
-  wrap.querySelectorAll("[data-reset-user]").forEach(b=>b.onclick=()=>openResetModal(b.getAttribute("data-reset-user")));
-  wrap.querySelectorAll("[data-edit-user]").forEach(b=>b.onclick=()=>openUserModal(b.dataset.editUser));
-  wrap.querySelectorAll("[data-toggle-user]").forEach(b=>b.onclick=async()=>{
-    await fetch("/api/admin/users/toggle-active",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:b.dataset.toggleUser})});
-    toast("User status updated"); loadUsers();
-  });
-  wrap.querySelectorAll("[data-approve-user]").forEach(b=>b.onclick=async()=>{
-    b.disabled=true; b.textContent="…";
-    const r=await fetch("/api/admin/users/approve",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:b.dataset.approveUser})});
-    const dd=await r.json();
-    if(r.ok&&dd.ok){ toast("User approved & notified"); loadUsers(); }
-    else { toast(dd.error||"Failed","err"); b.disabled=false; b.textContent="✅ Approve"; }
-  });
-  wrap.querySelectorAll("[data-reject-user]").forEach(b=>b.onclick=async()=>{
-    if(!confirm(`Reject signup for "${b.dataset.rejectUser}"?`)) return;
-    await fetch("/api/admin/users/reject",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:b.dataset.rejectUser})});
-    toast("Request rejected"); loadUsers();
-  });
+  const header=`<tr><th>Username</th><th>First Name</th><th>Last Name</th><th>Email</th><th>Role</th><th>Status</th><th style="text-align:right">Actions</th></tr>`;
+  const bindUsers=(wrapEl)=>{
+    wrapEl.querySelectorAll("[data-del-user]").forEach(b=>b.onclick=()=>deleteUser(b.getAttribute("data-del-user")));
+    wrapEl.querySelectorAll("[data-reset-user]").forEach(b=>b.onclick=()=>openResetModal(b.getAttribute("data-reset-user")));
+    wrapEl.querySelectorAll("[data-edit-user]").forEach(b=>b.onclick=()=>openUserModal(b.dataset.editUser));
+    wrapEl.querySelectorAll("[data-toggle-user]").forEach(b=>b.onclick=async()=>{
+      await fetch("/api/admin/users/toggle-active",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:b.dataset.toggleUser})});
+      toast("User status updated"); loadUsers();
+    });
+    wrapEl.querySelectorAll("[data-approve-user]").forEach(b=>b.onclick=async()=>{
+      b.disabled=true; b.textContent="…";
+      const r=await fetch("/api/admin/users/approve",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:b.dataset.approveUser})});
+      const dd=await r.json();
+      if(r.ok&&dd.ok){ toast("User approved & notified"); loadUsers(); }
+      else { toast(dd.error||"Failed","err"); b.disabled=false; b.textContent="✅ Approve"; }
+    });
+    wrapEl.querySelectorAll("[data-reject-user]").forEach(b=>b.onclick=()=>openRejectModal(b.dataset.rejectUser));
+    wrapEl.querySelectorAll("[data-reason-view]").forEach(b=>b.onclick=()=>{
+      const u=_usersData.find(x=>x.username===b.dataset.reasonView);
+      $("#reasonViewBody").innerHTML=`
+        <div style="background:#faf7f1;border-radius:10px;padding:14px 16px;margin-bottom:12px">
+          <div style="font-size:12px;color:#888">User</div>
+          <div style="font-size:15px;font-weight:700;color:#2c2c4a">${esc(u.first_name||'')} ${esc(u.last_name||'')} (${esc(u.username)})</div>
+        </div>
+        <div style="font-size:12px;color:#888;margin-bottom:6px">REASON</div>
+        <div style="background:#fff;border-left:3px solid #e74c3c;border-radius:8px;padding:12px 14px;font-size:14px;color:#333;line-height:1.5">${esc(u.reject_reason||'—')}</div>`;
+      $("#reasonViewModal").classList.add("open");
+    });
+    wrapEl.querySelectorAll("[data-delrej-user]").forEach(b=>b.onclick=async()=>{
+      if(!confirm(`Delete rejected record for "${b.dataset.delrejUser}"?`)) return;
+      await fetch("/api/admin/users/delete-rejected",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:b.dataset.delrejUser})});
+      toast("Record deleted"); loadUsers();
+    });
+  };
+  renderPaginatedTable("usersTableWrap", rows, header, "user", {defaultSize:25, emptyMsg:"No users yet.", onBind:bindUsers, noSort:[6]});
 }
 
 // User create/edit modal
@@ -525,7 +536,7 @@ if($("#dashCard")){
           };
         });
       };
-      renderPaginatedTable("cloudPendingWrap", failRows, header, "cloudpending", {defaultSize:10, emptyMsg:"No pending/failed uploads. 🎉", onBind:bindRetry});
+      renderPaginatedTable("cloudPendingWrap", failRows, header, "cloudpending", {defaultSize:10, emptyMsg:"No pending/failed uploads. 🎉", onBind:bindRetry, noSort:[4]});
     }catch{ $("#cloudPendingWrap").innerHTML = `<div class="empty">Could not load.</div>`; }
   }
 
@@ -557,7 +568,7 @@ if($("#dashCard")){
         </tr>`;
       });
       const header=`<tr><th>#</th><th>User</th><th>Job ID</th><th>Uploaded File</th><th>Output File</th><th>Upload Status</th><th>Server Status</th><th>Link</th></tr>`;
-      renderPaginatedTable("cloudAllJobsWrap", rows, header, "cloudalljobs", {defaultSize:10, emptyMsg:"No jobs yet."});
+      renderPaginatedTable("cloudAllJobsWrap", rows, header, "cloudalljobs", {defaultSize:10, emptyMsg:"No jobs yet.", noSort:[7]});
     }catch{ $("#cloudAllJobsWrap").innerHTML=`<div class="empty">Could not load.</div>`; }
   }
 
@@ -686,7 +697,7 @@ async function loadFeedback(){
         };
       });
     };
-    renderPaginatedTable("fbTableWrap", rowsArr, header, "feedback", {defaultSize:10, emptyMsg:"No feedback yet.", onBind:bindFb});
+    renderPaginatedTable("fbTableWrap", rowsArr, header, "feedback", {defaultSize:10, emptyMsg:"No feedback yet.", onBind:bindFb, noSort:[7]});
   }catch{ wrap.innerHTML='<div class="empty">Could not load feedback.</div>'; }
 }
 // Feedback view modal close
@@ -730,27 +741,103 @@ function bindPagination(key, cb){
 // state = {page, size}; rowsHtmlArr = array of <tr>...</tr> strings; headerHtml = <tr><th>...</th></tr>
 // onBind(container) optional — re-attach row event handlers after each render.
 const _pgState = {};
+function _cellText(rowHtml, colIdx){
+  // Extract text of the Nth <td> from a row HTML string (for sorting)
+  const tmp=document.createElement("tr");
+  tmp.innerHTML=rowHtml.replace(/^<tr[^>]*>/,"").replace(/<\/tr>\s*$/,"");
+  const tds=tmp.querySelectorAll("td");
+  if(colIdx>=tds.length) return "";
+  return (tds[colIdx].textContent||"").trim().toLowerCase();
+}
 function renderPaginatedTable(containerId, rowsHtmlArr, headerHtml, key, opts){
   opts = opts || {};
   const defSize = opts.defaultSize || 10;
   const tableClass = opts.tableClass || "";
-  if(!_pgState[key]) _pgState[key] = {page:1, size:defSize};
+  if(!_pgState[key]) _pgState[key] = {page:1, size:defSize, sortCol:null, sortDir:1};
   const st = _pgState[key];
   const el = document.getElementById(containerId);
   if(!el) return;
-  const total = rowsHtmlArr.length;
+
+  // Apply sort if a column is selected
+  let rows = rowsHtmlArr.slice();
+  if(st.sortCol!=null){
+    rows.sort((a,b)=>{
+      const av=_cellText(a,st.sortCol), bv=_cellText(b,st.sortCol);
+      const an=parseFloat(av.replace(/[^0-9.\-]/g,"")), bn=parseFloat(bv.replace(/[^0-9.\-]/g,""));
+      const bothNum = !isNaN(an) && !isNaN(bn) && av.match(/[0-9]/) && bv.match(/[0-9]/);
+      if(bothNum) return (an-bn)*st.sortDir;
+      return av.localeCompare(bv)*st.sortDir;
+    });
+  }
+
+  const total = rows.length;
   if(total===0){ el.innerHTML = `<div class="empty">${opts.emptyMsg||"No records."}</div>`; return; }
   const pages = Math.max(1, Math.ceil(total/st.size));
   if(st.page>pages) st.page=pages;
   if(st.page<1) st.page=1;
   const start = (st.page-1)*st.size;
-  const pageRows = rowsHtmlArr.slice(start, start+st.size).join("");
+  const pageRows = rows.slice(start, start+st.size).join("");
+
+  // Make header cells sortable (add arrow indicators)
+  const tmpH=document.createElement("thead"); tmpH.innerHTML=headerHtml;
+  const ths=tmpH.querySelectorAll("th");
+  ths.forEach((th,i)=>{
+    if(opts.noSort && opts.noSort.includes(i)) return;
+    th.style.cursor="pointer"; th.style.userSelect="none";
+    const arrow = st.sortCol===i ? (st.sortDir===1?" ▲":" ▼") : " ⇅";
+    th.innerHTML=th.innerHTML+`<span style="opacity:.4;font-size:10px">${arrow}</span>`;
+    th.setAttribute("data-sortcol", i);
+  });
+  const headerFinal=tmpH.innerHTML;
+
   el.innerHTML =
-    `<div style="overflow-x:auto"><table class="${tableClass}"><thead>${headerHtml}</thead><tbody>${pageRows}</tbody></table></div>`
+    `<div style="overflow-x:auto"><table class="${tableClass}"><thead>${headerFinal}</thead><tbody>${pageRows}</tbody></table></div>`
     + paginationBar(total, st.page, st.size, key);
-  bindPagination(key, (p,s)=>{ st.page=p; st.size=s; renderPaginatedTable(containerId, rowsHtmlArr, headerHtml, key, opts); if(opts.onBind) opts.onBind(el); });
+  // Sort click handlers
+  el.querySelectorAll("th[data-sortcol]").forEach(th=>{
+    th.onclick=()=>{
+      const col=parseInt(th.getAttribute("data-sortcol"));
+      if(st.sortCol===col){ st.sortDir=-st.sortDir; } else { st.sortCol=col; st.sortDir=1; }
+      renderPaginatedTable(containerId, rowsHtmlArr, headerHtml, key, opts);
+    };
+  });
+  bindPagination(key, (p,s)=>{ st.page=p; st.size=s; renderPaginatedTable(containerId, rowsHtmlArr, headerHtml, key, opts); });
   if(opts.onBind) opts.onBind(el);
 }
+
+// ===================== Reject Modal =====================
+let _rejectUsername=null;
+function openRejectModal(username){
+  _rejectUsername=username;
+  $("#rejectModalErr").style.display="none";
+  $("#rejectUserName").textContent=username;
+  $("#rejectReason").value="";
+  $("#rejectModal").classList.add("open");
+}
+(function(){
+  const modal=$("#rejectModal");
+  if(!modal) return;
+  $("#rejectCancelBtn").onclick=()=>modal.classList.remove("open");
+  modal.addEventListener("click",e=>{ if(e.target===modal) modal.classList.remove("open"); });
+  $("#rejectConfirmBtn").onclick=async()=>{
+    const err=$("#rejectModalErr");
+    const reason=$("#rejectReason").value.trim();
+    if(!reason){ err.textContent="Reason required."; err.style.display="block"; return; }
+    $("#rejectConfirmBtn").disabled=true;
+    try{
+      const r=await fetch("/api/admin/users/reject",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({username:_rejectUsername,reason})});
+      const d=await r.json();
+      if(r.ok&&d.ok){ toast("User rejected & notified"); modal.classList.remove("open"); loadUsers(); }
+      else { err.textContent=d.error||"Failed."; err.style.display="block"; }
+    }catch{ err.textContent="Network error."; err.style.display="block"; }
+    $("#rejectConfirmBtn").disabled=false;
+  };
+})();
+// Reason view modal close
+document.addEventListener("click",(e)=>{
+  if(e.target.id==="reasonViewCloseBtn"||e.target.id==="reasonViewModal") $("#reasonViewModal").classList.remove("open");
+});
 
 // ===================== User Modal Handlers =====================
 (function(){

@@ -264,6 +264,15 @@ document.getElementById("signupForm").addEventListener("submit",async(e)=>{
     msgEl.style.cssText=r.ok?"background:#e3f6ea;color:#1e8449;border-radius:9px;padding:12px;margin-bottom:12px;font-size:13px"
       :"background:#fbe1de;color:#c0392b;border-radius:9px;padding:12px;margin-bottom:12px;font-size:13px";
     msgEl.textContent=r.ok?d.message:d.error; msgEl.hidden=false;
+    if(r.ok){
+      // Form clear kari do (point 1)
+      document.getElementById("sfname").value="";
+      document.getElementById("slname").value="";
+      document.getElementById("suname").value="";
+      document.getElementById("semail").value="";
+      document.getElementById("spwd").value="";
+      const av=document.getElementById("availCheck"); if(av) av.innerHTML="";
+    }
   }catch{ showErr("Network error."); }
   btn.disabled=false; btn.textContent="Request Account";
 });

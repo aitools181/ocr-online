@@ -35,17 +35,25 @@ def _send(to, subject, html_body, text_body=None):
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = f"{_CFG.get('from_name', 'SMVS OCR')} <{_CFG['from_address']}>"
-    msg["To"] = to
+    # 'to' can be a comma-separated string ya list — multiple recipients support
+    if isinstance(to, str):
+        recipients = [e.strip() for e in to.replace(";", ",").split(",") if e.strip()]
+    else:
+        recipients = [e.strip() for e in to if e and e.strip()]
+    if not recipients:
+        log.warning("No valid recipients — skipping send")
+        return False
+    msg["To"] = ", ".join(recipients)
     if text_body:
         msg.attach(MIMEText(text_body, "plain", "utf-8"))
     msg.attach(MIMEText(html_body, "html", "utf-8"))
     try:
         with smtplib.SMTP_SSL("smtp.gmail.com", 465) as srv:
             srv.login(_CFG["from_address"], _CFG["app_password"])
-            srv.sendmail(_CFG["from_address"], to, msg.as_string())
+            srv.sendmail(_CFG["from_address"], recipients, msg.as_string())
         return True
     except Exception as e:
-        log.error("Email send failed to %s: %s", to, e)
+        log.error("Email send failed to %s: %s", recipients, e)
         return False
 
 
@@ -96,7 +104,12 @@ approves your account.</p>
     send_async(to, "SMVS OCR — Account Signup Received", _wrap(body))
 
 
-def send_admin_approval_request(admin_email, first_name, last_name, username, email, approve_link):
+def send_admin_approval_request(admin_email, first_name, last_name, username, email, approve_link, reject_link=""):
+    reject_btn = f"""
+<a href="{reject_link}" style="display:inline-block;background:#fff;border:1.5px solid #e74c3c;
+  color:#e74c3c;text-decoration:none;padding:13px 26px;border-radius:10px;font-weight:700;font-size:15px;margin-left:10px">
+  ✗ Reject User
+</a>""" if reject_link else ""
     body = f"""
 <h2 style="margin:0 0 8px;font-size:20px;color:#2c2c4a">New User Signup Request</h2>
 <p style="color:#555;margin:0 0 20px">A new user has registered and is awaiting your approval.</p>
@@ -110,8 +123,8 @@ def send_admin_approval_request(admin_email, first_name, last_name, username, em
 <a href="{approve_link}" style="display:inline-block;background:linear-gradient(135deg,#c97e1a,#e8a020);
   color:#fff;text-decoration:none;padding:14px 28px;border-radius:10px;font-weight:700;font-size:15px">
   ✅ Approve User
-</a>
-<p style="font-size:12px;color:#aaa;margin-top:16px">Or log in to Admin → User Management to approve manually.</p>
+</a>{reject_btn}
+<p style="font-size:12px;color:#aaa;margin-top:16px">Or log in to Admin → User Management to approve/reject manually.</p>
 """
     send_async(admin_email, f"SMVS OCR — New Signup: {username}", _wrap(body))
 
@@ -131,6 +144,23 @@ has been approved by the administrator.</p>
 </a>
 """
     send_async(to, "SMVS OCR — Account Approved!", _wrap(body))
+
+
+def send_rejection_notification(to, first_name, username):
+    """User ne reject notification jaay — pan reason MATE user ne NA jaay (admin-only)."""
+    body = f"""
+<h2 style="margin:0 0 8px;font-size:20px;color:#2c2c4a">Account Request Update</h2>
+<p style="color:#555;margin:0 0 18px">Dear <b>{first_name}</b>, thank you for your interest in SMVS OCR.</p>
+<div style="background:#faf7f1;border-radius:10px;padding:14px 18px;margin-bottom:18px">
+  <div style="font-size:13px;color:#888">Username</div>
+  <div style="font-size:16px;font-weight:600;color:#2c2c4a">{username}</div>
+</div>
+<p style="color:#555;margin:0 0 12px">We're sorry to inform you that your account request
+could not be approved at this time.</p>
+<p style="color:#888;font-size:13px;margin:0">If you believe this was a mistake or need more
+information, please contact the administrator directly.</p>
+"""
+    send_async(to, "SMVS OCR — Account Request Update", _wrap(body))
 
 
 def send_password_reset(to, first_name, reset_link, username=""):
