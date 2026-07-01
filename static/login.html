@@ -294,6 +294,13 @@ async function fetchVisitorCount(){
 }
 fetchVisitorCount(); setInterval(fetchVisitorCount,30000);
 setInterval(()=>fetch("/api/ping",{method:"POST"}).catch(()=>{}),25000);
+// Count a page view only once per browser-tab session (not on refresh) — point 10
+try{
+  if(!sessionStorage.getItem("smvs_viewed")){
+    sessionStorage.setItem("smvs_viewed","1");
+    fetch("/api/track-view",{method:"POST"}).catch(()=>{});
+  }
+}catch{ fetch("/api/track-view",{method:"POST"}).catch(()=>{}); }
 </script>
 </body>
 </html>

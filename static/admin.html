@@ -125,6 +125,22 @@
   #dashCard thead th{background:#faf7f1}
   .tbl-center th,.tbl-center td{text-align:center !important}
   .tbl-center td:nth-child(2){font-weight:600}
+  /* Pagination */
+  .pgbar{display:flex;align-items:center;gap:18px;flex-wrap:wrap;margin-top:14px;padding-top:12px;
+    border-top:1px solid var(--line);font-size:12.5px;color:var(--muted)}
+  .pgbar select{padding:5px 8px;border:1px solid var(--line);border-radius:7px;font:inherit;font-size:12.5px}
+  .pgbar .pg-nav{display:flex;align-items:center;gap:10px;margin-left:auto}
+  .pgbar .pg-nav button{padding:6px 12px;border:1px solid var(--line);border-radius:8px;background:#fff;
+    font:inherit;font-size:12.5px;cursor:pointer;font-weight:600}
+  .pgbar .pg-nav button:hover:not(:disabled){background:var(--saffron);color:#fff;border-color:var(--saffron)}
+  .pgbar .pg-nav button:disabled{opacity:.4;cursor:not-allowed}
+  .pgbar .pg-page{font-weight:600;color:#5b4326}
+  /* Modal generic fields */
+  #userModal .f,#roleModal .f{margin-bottom:12px}
+  #userModal .f span,#roleModal .f span{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-bottom:5px}
+  #userModal .f input,#userModal .f select,#roleModal .f input{
+    width:100%;box-sizing:border-box;padding:9px 11px;border:1px solid var(--line);border-radius:9px;font:inherit;font-size:13px}
+  .perm-row:hover{background:#faf7f1}
   /* Cloud Storage modal */
   .cloud-status{display:flex;align-items:center;gap:10px;background:#faf7f1;border-radius:10px;
     padding:10px 14px;font-size:13px}
@@ -168,6 +184,7 @@
   <div class="tab-nav" id="adminTabNav">
     <button data-tab="dashboard" class="active" type="button">📊 Dashboard</button>
     <button data-tab="users" type="button">👤 User Management</button>
+    <button data-tab="roles" type="button">🛡️ Role Management</button>
     <button data-tab="fonts" type="button">🔤 Uploaded Fonts</button>
     <button data-tab="jobs" type="button">🗂️ Stored Jobs</button>
     <button data-tab="cloud" type="button">☁️ Cloud Management</button>
@@ -235,18 +252,20 @@
 
   <!-- Users -->
   <div class="card tab-panel" id="usersPanel" data-panel="users" hidden>
-    <div class="card-head"><h2>👤 User Management</h2></div>
-    <div class="userform">
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px">
-        <label class="f"><span>First Name</span><input id="nuFname" type="text" placeholder="First name" /></label>
-        <label class="f"><span>Last Name</span><input id="nuLname" type="text" placeholder="Last name" /></label>
-        <label class="f"><span>Username (min 5)</span><input id="nuUser" type="text" placeholder="e.g. ramesh01" /></label>
-        <label class="f"><span>Email ID</span><input id="nuEmail" type="email" placeholder="user@email.com" /></label>
-        <label class="f"><span>Password (min 4)</span><input id="nuPass" type="text" placeholder="min 4 chars" /></label>
-      </div>
-      <button id="addUserBtn" class="add-btn" type="button">+ Create User</button>
+    <div class="card-head" style="display:flex;align-items:center;justify-content:space-between">
+      <h2>👤 User Management</h2>
+      <button id="openCreateUserBtn" class="add-btn" type="button">+ Create User</button>
     </div>
     <div id="usersWrap"></div>
+  </div>
+
+  <!-- Role Management -->
+  <div class="card tab-panel" id="rolesPanel" data-panel="roles" hidden>
+    <div class="card-head" style="display:flex;align-items:center;justify-content:space-between">
+      <h2>🛡️ Role Management</h2>
+      <button id="openCreateRoleBtn" class="add-btn" type="button">+ Create Role</button>
+    </div>
+    <div id="rolesWrap"></div>
   </div>
 
   <!-- Fonts -->
@@ -411,6 +430,42 @@
     <div id="fbViewBody" style="font-size:14px;color:#333"></div>
     <div class="modal-actions">
       <button class="btn-cancel" id="fbViewCloseBtn" type="button">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Create/Edit User Modal (change-password style) -->
+<div class="modal-overlay" id="userModal">
+  <div class="modal-box" style="width:420px;max-height:88vh;overflow:auto">
+    <h3 id="userModalTitle">👤 Create User</h3>
+    <div id="userModalErr" class="modal-err" style="display:none"></div>
+    <div class="f"><span>First Name <span style="color:#e74c3c">*</span></span><input id="umFname" type="text" /></div>
+    <div class="f"><span>Last Name <span style="color:#e74c3c">*</span></span><input id="umLname" type="text" /></div>
+    <div class="f"><span>Username <span style="color:#e74c3c">*</span> <span id="umUserHint" class="muted" style="font-weight:400"></span></span><input id="umUser" type="text" /></div>
+    <div class="f"><span>Email ID <span style="color:#e74c3c">*</span></span><input id="umEmail" type="email" /></div>
+    <div class="f" id="umPassRow"><span>Password <span style="color:#e74c3c">*</span></span><input id="umPass" type="text" placeholder="min 4 chars" /></div>
+    <div class="f"><span>Role</span>
+      <select id="umRole"></select>
+    </div>
+    <div class="pw-modal-actions">
+      <button type="button" id="umCancelBtn">Cancel</button>
+      <button type="button" id="umSaveBtn">Create User</button>
+    </div>
+  </div>
+</div>
+
+<!-- Create/Edit Role Modal -->
+<div class="modal-overlay" id="roleModal">
+  <div class="modal-box" style="width:460px;max-height:88vh;overflow:auto">
+    <h3 id="roleModalTitle">🛡️ Create Role</h3>
+    <div id="roleModalErr" class="modal-err" style="display:none"></div>
+    <div class="f"><span>Role Name <span style="color:#e74c3c">*</span> <span class="muted" style="font-weight:400">(lowercase, no spaces)</span></span>
+      <input id="rmName" type="text" placeholder="e.g. editor" /></div>
+    <div style="font-size:12px;font-weight:600;color:#666;margin:14px 0 8px">PERMISSIONS — select what this role can access:</div>
+    <div id="rmPermsWrap"></div>
+    <div class="pw-modal-actions">
+      <button type="button" id="rmCancelBtn">Cancel</button>
+      <button type="button" id="rmSaveBtn">Save Role</button>
     </div>
   </div>
 </div>

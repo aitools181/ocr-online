@@ -29,6 +29,7 @@ import engine
 import db
 import storage
 import emailer
+import permissions
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 JOBS = os.path.join(BASE, "jobs")
@@ -66,6 +67,15 @@ APP_DATE    = "01-07-2026"
 storage.configure(storage.load_runtime_config(JOBS) or _CFG.get("storage", {}))
 storage.start_retry_worker(db, JOBS)
 emailer.configure(storage.load_email_config(JOBS) or _CFG.get("email", {}))
+
+# Bootstrap default roles if none exist (admin = all tabs, user = app only)
+def _bootstrap_roles():
+    existing = {r["name"] for r in db.role_list()}
+    if "admin" not in existing:
+        db.role_upsert("admin", permissions.all_keys())   # full admin (all tabs + app)
+    if "user" not in existing:
+        db.role_upsert("user", ["app.ocr", "app.feedback"])
+_bootstrap_roles()
 
 # ------------------------------------------------------------------ AUTH
 USERS_DIR = os.path.join(JOBS, "_users")
@@ -105,10 +115,40 @@ def _device_label(request: Request):
     return ua[:180]  # raw UA, truncated — lightweight, no extra parsing dependency
 
 
+_geo_cache = {}
+
+
+def _geo_lookup(ip):
+    """Free IP geolocation (ip-api.com). Private/LAN IPs → 'Local Network'.
+    Cached in-memory to avoid repeat lookups."""
+    if not ip:
+        return None
+    if ip in _geo_cache:
+        return _geo_cache[ip]
+    # Private ranges
+    if ip.startswith(("10.", "192.168.", "127.")) or ip == "localhost" or \
+       any(ip.startswith(f"172.{i}.") for i in range(16, 32)):
+        _geo_cache[ip] = "Local Network"
+        return "Local Network"
+    loc = None
+    try:
+        import urllib.request, json as _json
+        with urllib.request.urlopen(
+                f"http://ip-api.com/json/{ip}?fields=status,city,regionName,country", timeout=3) as r:
+            d = _json.loads(r.read().decode())
+            if d.get("status") == "success":
+                parts = [d.get("city"), d.get("regionName"), d.get("country")]
+                loc = ", ".join(p for p in parts if p)
+    except Exception:
+        loc = None
+    _geo_cache[ip] = loc
+    return loc
+
+
 def _client_meta(request: Request):
-    """IP + device for tracking. Location resolution (city/country) plug-in karva
-    mate _client_ip() na result par GeoIP lookup add kari shakay pachi (step 5/6 ma)."""
-    return _client_ip(request), _device_label(request), None  # ip, device, location
+    """IP + device + location for tracking."""
+    ip = _client_ip(request)
+    return ip, _device_label(request), _geo_lookup(ip)
 
 
 def _hash_pw(password, salt):
@@ -138,13 +178,58 @@ def _save_users(users):
 
 
 def verify_credentials(username, password):
-    """Admin = config; baki users = users.json. Match thay to user dict, nahi to None."""
+    """superadmin = config; baki users = users.json. Match thay to user dict, nahi to None."""
     if username == ADMIN_USERNAME and ADMIN_PASSWORD and \
             hmac.compare_digest(str(password), ADMIN_PASSWORD):
-        return {"username": username, "role": "admin"}
+        return {"username": username, "role": "superadmin"}
     u = _load_users().get(username)
     if u and _verify_pw(password, u.get("salt", ""), u.get("hash", "")):
+        if not u.get("active", True):
+            return "inactive"   # sentinel — user exists but deactivated
         return {"username": username, "role": u.get("role", "user")}
+    return None
+
+
+def _role_perms(role_name):
+    """Lookup a role's permission list from DB."""
+    r = db.role_get(role_name)
+    return r["permissions"] if r else None
+
+
+def _has_perm(user, permission):
+    """Check if a logged-in user dict has a permission."""
+    if not user:
+        return False
+    return permissions.has_permission(user.get("role", "user"), permission, _role_perms)
+
+
+def _user_allowed_tabs(user):
+    """List of admin.* tab keys this user can access."""
+    if not user:
+        return []
+    if user.get("role") == "superadmin":
+        return [t["key"] for t in permissions.admin_tab_permissions()]
+    perms = _role_perms(user.get("role", "user")) or []
+    return [k for k in perms if k.startswith("admin.")]
+
+
+def _endpoint_permission(path):
+    """Map an /api/admin/* path to the admin.* permission it requires. None = no specific gate."""
+    mapping = [
+        ("/api/admin/dashboard", "admin.dashboard"),
+        ("/api/admin/users",     "admin.users"),
+        ("/api/admin/roles",     "admin.roles"),
+        ("/api/admin/permissions-catalog", "admin.roles"),
+        ("/api/admin/fonts",     "admin.fonts"),
+        ("/api/admin/list",      "admin.jobs"),   # stored jobs listing
+        ("/api/admin/delete",    "admin.jobs"),
+        ("/api/admin/storage",   "admin.cloud"),
+        ("/api/admin/feedback",  "admin.feedback"),
+        ("/api/admin/email",     "admin.email"),
+    ]
+    for prefix, perm in mapping:
+        if path.startswith(prefix):
+            return perm
     return None
 
 
@@ -182,7 +267,7 @@ app = FastAPI(title="SMVS OCR")
 _PUBLIC = {"/login", "/api/login", "/health", "/favicon.ico", "/api/visitor-count",
            "/api/signup", "/api/check-username", "/api/approve-user",
            "/reset-password", "/api/forgot-password", "/api/reset-password",
-           "/api/feedback"}
+           "/api/feedback", "/api/ping", "/api/track-view"}
 
 
 @app.middleware("http")
@@ -195,26 +280,29 @@ async def auth_middleware(request: Request, call_next):
         if path.startswith("/api/"):
             return JSONResponse({"error": "Login required"}, status_code=401)
         return RedirectResponse("/login")
-    if (path == "/admin" or path.startswith("/api/admin")) and user.get("role") != "admin":
-        if path.startswith("/api/"):
-            return JSONResponse({"error": "Admin access only"}, status_code=403)
-        return RedirectResponse("/")
+    # Admin area access: superadmin, or any role that has at least one admin.* permission
+    if path == "/admin" or path.startswith("/api/admin"):
+        allowed_tabs = _user_allowed_tabs(user)
+        if user.get("role") != "superadmin" and not allowed_tabs:
+            if path.startswith("/api/"):
+                return JSONResponse({"error": "Admin access only"}, status_code=403)
+            return RedirectResponse("/")
+        # Per-endpoint permission: map API path prefix → required admin tab permission
+        if path.startswith("/api/admin") and user.get("role") != "superadmin":
+            required = _endpoint_permission(path)
+            if required and required not in allowed_tabs:
+                return JSONResponse({"error": "You don't have permission for this action."}, status_code=403)
     request.state.user = user
     return await call_next(request)
 
 
 def _track_page_view(request: Request, response, page: str, logged_in: bool):
-    """Visitor session cookie banavi/vaanchi, page_views table ma record kare.
-    Login page (pre-login) ane main/admin pages (post-login) banne mate vapras."""
+    """Visitor session cookie set kare. View count HAVE frontend /api/track-view thi thay chhe
+    (sessionStorage guard sathe) jethi refresh par count na vadhe (point 10)."""
     vid = request.cookies.get(VISITOR_COOKIE)
     if not vid:
         vid = db.new_session_id()
         response.set_cookie(VISITOR_COOKIE, vid, max_age=30 * 86400, httponly=True, samesite="lax")
-    ip = _client_ip(request)
-    try:
-        db.page_view_record(vid, page, logged_in, ip)
-    except Exception:
-        pass
 
 
 def _cleanup():
@@ -268,10 +356,15 @@ def login_page(request: Request):
 @app.post("/api/login")
 async def api_login(request: Request, username: str = Form(...), password: str = Form(...)):
     ip, device, location = _client_meta(request)
-    user = verify_credentials(username.strip(), password)
+    username = username.strip()
+    user = verify_credentials(username, password)
+    if user == "inactive":
+        try: db.login_record(username, ip, device, location, success=False)
+        except Exception: pass
+        return JSONResponse({"error": "Your account is deactivated. Contact administrator."}, status_code=403)
     if not user:
         try:
-            db.login_record(username.strip(), ip, device, location, success=False)
+            db.login_record(username, ip, device, location, success=False)
         except Exception:
             pass
         return JSONResponse({"error": "Wrong username or password."}, status_code=401)
@@ -279,7 +372,9 @@ async def api_login(request: Request, username: str = Form(...), password: str =
         db.login_record(user["username"], ip, device, location, success=True)
     except Exception:
         pass
-    resp = JSONResponse({"ok": True, "username": user["username"], "role": user["role"]})
+    has_admin = bool(_user_allowed_tabs(user)) or user["role"] == "superadmin"
+    resp = JSONResponse({"ok": True, "username": user["username"], "role": user["role"],
+                         "has_admin": has_admin})
     resp.set_cookie(COOKIE, _make_token(user["username"], user["role"]),
                     max_age=SESSION_DAYS * 86400, httponly=True, samesite="lax")
     return resp
@@ -297,7 +392,12 @@ async def api_me(request: Request):
     u = getattr(request.state, "user", None)
     if not u:
         return JSONResponse({"error": "Login required"}, status_code=401)
-    return {"username": u["username"], "role": u["role"]}
+    allowed_tabs = _user_allowed_tabs(u)
+    return {"username": u["username"], "role": u["role"],
+            "allowed_tabs": allowed_tabs,
+            "has_admin": bool(allowed_tabs) or u["role"] == "superadmin",
+            "can_ocr": u["role"] == "superadmin" or _has_perm(u, "app.ocr"),
+            "can_feedback": u["role"] == "superadmin" or _has_perm(u, "app.feedback")}
 
 
 @app.post("/api/me/change-password")
@@ -369,6 +469,10 @@ async def upload_font(file: UploadFile = File(...)):
 
 @app.post("/api/convert")
 async def convert(request: Request, files: list[UploadFile] = File(...), options: str = Form(...)):
+    # Permission gate: user must have app.ocr (superadmin always allowed)
+    _u = getattr(request.state, "user", None)
+    if not (_u and (_u.get("role") == "superadmin" or _has_perm(_u, "app.ocr"))):
+        raise HTTPException(403, "You do not have permission to use OCR conversion.")
     _cleanup()
     try:
         opts = json.loads(options)
@@ -654,21 +758,25 @@ async def admin_delete(payload: dict):
 
 # ---- User management (admin only via middleware) ----
 @app.get("/api/admin/users")
-async def admin_users():
+async def admin_users(request: Request):
+    """superadmin ne list ma kadi na batavvu (point 5)."""
+    viewer = getattr(request.state, "user", None)
     users = _load_users()
-    out = [{"username": ADMIN_USERNAME, "role": "admin", "builtin": True,
-            "email": "", "first_name": "Admin", "last_name": "", "status": "active"}]
+    out = []
     for un, u in sorted(users.items()):
         out.append({"username": un, "role": u.get("role", "user"), "builtin": False,
-                    "email": u.get("email", ""), "first_name": u.get("first_name", ""),
-                    "last_name": u.get("last_name", ""), "status": "active"})
-    # pending approvals
+                    "email": u.get("email", ""), "emails": u.get("emails", []),
+                    "first_name": u.get("first_name", ""),
+                    "last_name": u.get("last_name", ""),
+                    "status": "active" if u.get("active", True) else "inactive"})
     pending = db.pending_user_get_all()
     for p in pending:
         out.append({"username": p["username"], "role": "user", "builtin": False,
-                    "email": p["email"], "first_name": p["first_name"],
+                    "email": p["email"], "emails": [], "first_name": p["first_name"],
                     "last_name": p["last_name"], "status": "pending"})
-    return {"users": out}
+    # roles list for the role-assign dropdown (superadmin excluded)
+    roles = [r["name"] for r in db.role_list()]
+    return {"users": out, "roles": roles}
 
 
 @app.post("/api/admin/users")
@@ -678,20 +786,64 @@ async def admin_create_user(payload: dict):
     email    = str(payload.get("email", "")).strip()
     fname    = str(payload.get("first_name", "")).strip()
     lname    = str(payload.get("last_name", "")).strip()
+    role     = str(payload.get("role", "user")).strip() or "user"
     if not _UNAME_RE.match(username):
         return JSONResponse({"error": "Username: 2-40 chars, letters/digits/._- only."}, status_code=400)
     if len(password) < 4:
         return JSONResponse({"error": "Password must be at least 4 characters."}, status_code=400)
     if username == ADMIN_USERNAME:
         return JSONResponse({"error": "That username is reserved."}, status_code=400)
+    if role == "superadmin":
+        return JSONResponse({"error": "Cannot assign superadmin role."}, status_code=400)
     users = _load_users()
     if db.username_taken(username, users):
         return JSONResponse({"error": "User already exists."}, status_code=400)
     salt = os.urandom(16)
-    users[username] = {"salt": salt.hex(), "hash": _hash_pw(password, salt), "role": "user",
-                       "email": email, "first_name": fname, "last_name": lname}
+    emails = [email] if email else []
+    users[username] = {"salt": salt.hex(), "hash": _hash_pw(password, salt), "role": role,
+                       "email": email, "emails": emails,
+                       "first_name": fname, "last_name": lname, "active": True}
     _save_users(users)
     return {"ok": True, "username": username}
+
+
+@app.post("/api/admin/users/edit")
+async def admin_edit_user(payload: dict):
+    """Edit user details — name, email(s), role, active. Password alag reset flow thi."""
+    username = str(payload.get("username", "")).strip()
+    if username == ADMIN_USERNAME:
+        return JSONResponse({"error": "Built-in account cannot be edited."}, status_code=400)
+    users = _load_users()
+    if username not in users:
+        return JSONResponse({"error": "User not found."}, status_code=404)
+    u = users[username]
+    if "first_name" in payload: u["first_name"] = str(payload["first_name"]).strip()
+    if "last_name" in payload:  u["last_name"]  = str(payload["last_name"]).strip()
+    if "email" in payload:      u["email"]      = str(payload["email"]).strip()
+    if "emails" in payload and isinstance(payload["emails"], list):
+        clean = [e.strip() for e in payload["emails"] if e.strip() and _EMAIL_RE.match(e.strip())]
+        u["emails"] = clean
+        if clean and not u.get("email"): u["email"] = clean[0]
+    if "role" in payload:
+        new_role = str(payload["role"]).strip()
+        if new_role == "superadmin":
+            return JSONResponse({"error": "Cannot assign superadmin role."}, status_code=400)
+        u["role"] = new_role or "user"
+    if "active" in payload:      u["active"]     = bool(payload["active"])
+    users[username] = u
+    _save_users(users)
+    return {"ok": True}
+
+
+@app.post("/api/admin/users/toggle-active")
+async def admin_toggle_user_active(payload: dict):
+    username = str(payload.get("username", "")).strip()
+    users = _load_users()
+    if username not in users:
+        return JSONResponse({"error": "User not found."}, status_code=404)
+    users[username]["active"] = not users[username].get("active", True)
+    _save_users(users)
+    return {"ok": True, "active": users[username]["active"]}
 
 
 @app.post("/api/admin/users/delete")
@@ -979,6 +1131,58 @@ def api_version():
             "email_enabled": emailer.is_enabled()}
 
 
+# --------------------------------------------------------- ROLE MANAGEMENT
+@app.get("/api/admin/permissions-catalog")
+async def admin_permissions_catalog():
+    """All available permissions grouped — auto-includes any future feature."""
+    return {"catalog": permissions.catalog()}
+
+
+@app.get("/api/admin/roles")
+async def admin_roles_list():
+    return {"roles": db.role_list(), "catalog": permissions.catalog()}
+
+
+@app.post("/api/admin/roles")
+async def admin_role_save(request: Request, payload: dict):
+    """superadmin only — create/update a role with permissions."""
+    viewer = getattr(request.state, "user", None)
+    if not viewer or viewer.get("role") != "superadmin":
+        return JSONResponse({"error": "Only superadmin can manage roles."}, status_code=403)
+    name = str(payload.get("name", "")).strip().lower()
+    perms = payload.get("permissions", [])
+    if not name or not re.match(r"^[a-z0-9_-]{2,30}$", name):
+        return JSONResponse({"error": "Role name: 2-30 chars, lowercase letters/digits/_-."}, status_code=400)
+    if name == "superadmin":
+        return JSONResponse({"error": "'superadmin' is reserved."}, status_code=400)
+    if not isinstance(perms, list):
+        return JSONResponse({"error": "Invalid permissions."}, status_code=400)
+    valid = set(permissions.all_keys())
+    perms = [p for p in perms if p in valid]
+    db.role_upsert(name, perms)
+    return {"ok": True}
+
+
+@app.post("/api/admin/roles/delete")
+async def admin_role_delete(request: Request, payload: dict):
+    viewer = getattr(request.state, "user", None)
+    if not viewer or viewer.get("role") != "superadmin":
+        return JSONResponse({"error": "Only superadmin can manage roles."}, status_code=403)
+    name = str(payload.get("name", "")).strip().lower()
+    if name == "superadmin":
+        return JSONResponse({"error": "Cannot delete superadmin."}, status_code=400)
+    # reassign any users with this role back to 'user'
+    users = _load_users()
+    changed = False
+    for un, u in users.items():
+        if u.get("role") == name:
+            u["role"] = "user"; changed = True
+    if changed:
+        _save_users(users)
+    db.role_delete(name)
+    return {"ok": True}
+
+
 # --------------------------------------------------------- USERNAME CHECK
 @app.get("/api/check-username")
 async def check_username(username: str = ""):
@@ -1098,7 +1302,7 @@ async def api_forgot_password(request: Request, payload: dict):
         base  = str(request.base_url).rstrip("/")
         link  = f"{base}/reset-password?token={token}"
         # Synchronous send so user knows immediately it went out
-        sent = emailer.send_password_reset_sync(email, urec.get("first_name", username), link)
+        sent = emailer.send_password_reset_sync(email, urec.get("first_name", username), link, username=username)
         masked = _mask_email(email)
         if sent:
             return {"ok": True, "message": f"✅ Reset link sent to <b>{masked}</b> — check your inbox (expires in 15 min)."}
@@ -1201,7 +1405,7 @@ async def api_feedback(request: Request, payload: dict):
     fb_id = db.feedback_create(name, email, fb_type, message, rating, username=username)
     admin_email = emailer._CFG.get("admin_email", "")
     if admin_email:
-        emailer.send_feedback_notification(admin_email, name, email, fb_type, message, fb_id)
+        emailer.send_feedback_notification(admin_email, name, email, fb_type, message, fb_id, fb_username=username)
     return {"ok": True, "message": "Thank you for your feedback!"}
 
 
@@ -1285,8 +1489,7 @@ async def admin_email_test():
 
 @app.post("/api/ping")
 async def api_ping(request: Request):
-    """Heartbeat — frontend e periodically (e.g. every 20-30 sec) call kare jethi
-    live visitor count accurate rahe. Login page thi pan public rite call thai shake."""
+    """Heartbeat — live presence update only, NO view count (point 10)."""
     vid = request.cookies.get(VISITOR_COOKIE)
     u = _read_token(request.cookies.get(COOKIE))
     resp = JSONResponse({"ok": True})
@@ -1294,7 +1497,25 @@ async def api_ping(request: Request):
         vid = db.new_session_id()
         resp.set_cookie(VISITOR_COOKIE, vid, max_age=30 * 86400, httponly=True, samesite="lax")
     try:
-        db.page_view_record(vid, "ping", logged_in=bool(u), ip=_client_ip(request))
+        db.live_touch(vid, "ping", logged_in=bool(u))
+    except Exception:
+        pass
+    return resp
+
+
+@app.post("/api/track-view")
+async def api_track_view(request: Request):
+    """Frontend e ek j vaar per browser-tab-session call kare (sessionStorage guard).
+    Refresh par frontend call nથi karto etle count nથi vadhto. Fresh URL open par j count thay."""
+    vid = request.cookies.get(VISITOR_COOKIE)
+    u = _read_token(request.cookies.get(COOKIE))
+    page = "app" if u else "login"
+    resp = JSONResponse({"ok": True})
+    if not vid:
+        vid = db.new_session_id()
+        resp.set_cookie(VISITOR_COOKIE, vid, max_age=30 * 86400, httponly=True, samesite="lax")
+    try:
+        db.page_view_record(vid, page, logged_in=bool(u), ip=_client_ip(request), count_view=True)
     except Exception:
         pass
     return resp

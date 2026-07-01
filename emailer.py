@@ -133,22 +133,29 @@ has been approved by the administrator.</p>
     send_async(to, "SMVS OCR — Account Approved!", _wrap(body))
 
 
-def send_password_reset(to, first_name, reset_link):
-    body = _password_reset_body(first_name, reset_link)
-    send_async(to, "SMVS OCR — Password Reset Link", _wrap(body))
+def send_password_reset(to, first_name, reset_link, username=""):
+    body = _password_reset_body(first_name, reset_link, username)
+    send_async(to, f"SMVS OCR — Password Reset ({username})" if username else "SMVS OCR — Password Reset Link", _wrap(body))
 
 
-def send_password_reset_sync(to, first_name, reset_link):
+def send_password_reset_sync(to, first_name, reset_link, username=""):
     """Synchronous — returns True/False so caller knows if it actually sent."""
-    body = _password_reset_body(first_name, reset_link)
-    return _send(to, "SMVS OCR — Password Reset Link", _wrap(body))
+    body = _password_reset_body(first_name, reset_link, username)
+    subj = f"SMVS OCR — Password Reset ({username})" if username else "SMVS OCR — Password Reset Link"
+    return _send(to, subj, _wrap(body))
 
 
-def _password_reset_body(first_name, reset_link):
+def _password_reset_body(first_name, reset_link, username=""):
+    uname_row = f"""
+<div style="background:#faf7f1;border-radius:10px;padding:12px 16px;margin:0 0 18px">
+  <span style="font-size:12px;color:#888">Username</span>
+  <div style="font-size:16px;font-weight:700;color:#2c2c4a">{username}</div>
+</div>""" if username else ""
     return f"""
 <h2 style="margin:0 0 8px;font-size:20px;color:#2c2c4a">Password Reset Request 🔑</h2>
-<p style="color:#555;margin:0 0 20px">Hello <b>{first_name}</b>, we received a request to
-reset your SMVS OCR password.</p>
+<p style="color:#555;margin:0 0 18px">Hello <b>{first_name}</b>, we received a request to
+reset the password for the account below.</p>
+{uname_row}
 <a href="{reset_link}" style="display:inline-block;background:linear-gradient(135deg,#c97e1a,#e8a020);
   color:#fff;text-decoration:none;padding:14px 28px;border-radius:10px;font-weight:700;font-size:15px">
   🔓 Reset My Password
@@ -158,12 +165,13 @@ reset your SMVS OCR password.</p>
 """
 
 
-def send_feedback_notification(admin_email, fb_name, fb_email, fb_type, fb_message, fb_id):
+def send_feedback_notification(admin_email, fb_name, fb_email, fb_type, fb_message, fb_id, fb_username=""):
+    uname = f" · <b>{fb_username}</b>" if fb_username else ""
     body = f"""
 <h2 style="margin:0 0 8px;font-size:20px;color:#2c2c4a">New Feedback Received 💬</h2>
 <div style="background:#faf7f1;border-radius:10px;padding:14px 18px;margin-bottom:20px">
   <table style="font-size:14px;color:#444;width:100%">
-    <tr><td style="padding:4px 0;color:#888;width:100px">From</td><td><b>{fb_name}</b> ({fb_email})</td></tr>
+    <tr><td style="padding:4px 0;color:#888;width:100px">From</td><td><b>{fb_name}</b> ({fb_email}){uname}</td></tr>
     <tr><td style="padding:4px 0;color:#888">Type</td><td><span style="background:#fdecc8;
       color:#9a6a12;border-radius:6px;padding:1px 8px">{fb_type}</span></td></tr>
     <tr><td style="padding:4px 0;color:#888">Message</td><td></td></tr>

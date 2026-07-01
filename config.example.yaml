@@ -2,7 +2,12 @@
 # Aa file ne "config.yaml" naam thi copy karo ane password badlo:
 #   copy config.example.yaml config.yaml   (Windows)
 #   cp   config.example.yaml config.yaml   (Linux)
+# Built-in SUPER ADMIN account (full rights, hidden from user list).
+# Username default 'admin' (change via admin_username or ADMIN_USERNAME env).
+# This account has the 'superadmin' role — it can create other roles and grant
+# admin-tab rights to them via Admin → Role Management.
 admin_password: "Password-=123"
+# admin_username: "admin"
 output_retention_hours: 24
 max_files: 50
 

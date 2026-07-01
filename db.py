@@ -116,6 +116,12 @@ def _init():
                 created_at  REAL NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_fb_created ON feedback(created_at);
+
+            CREATE TABLE IF NOT EXISTS roles (
+                name        TEXT PRIMARY KEY,
+                permissions TEXT NOT NULL DEFAULT '[]',
+                created_at  REAL NOT NULL
+            );
             """
         )
         _conn.commit()
@@ -318,13 +324,29 @@ def login_history_recent(limit=100):
 
 # ------------------------------------------------------------------ PAGE VIEWS
 
-def page_view_record(session_id, page, logged_in, ip):
+def page_view_record(session_id, page, logged_in, ip, count_view=True):
+    """count_view=True → records a page view (visit count). Always updates live presence.
+    Refresh/ping ma count_view=False rakho jethi count na vadhe (point 10)."""
     now = time.time()
     with _lock:
+        if count_view:
+            _conn.execute(
+                "INSERT INTO page_views (session_id, page, logged_in, ip, timestamp) VALUES (?, ?, ?, ?, ?)",
+                (session_id, page, 1 if logged_in else 0, ip, now),
+            )
         _conn.execute(
-            "INSERT INTO page_views (session_id, page, logged_in, ip, timestamp) VALUES (?, ?, ?, ?, ?)",
-            (session_id, page, 1 if logged_in else 0, ip, now),
+            """INSERT INTO live_sessions (session_id, page, logged_in, last_seen)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(session_id) DO UPDATE SET page=?, logged_in=?, last_seen=?""",
+            (session_id, page, 1 if logged_in else 0, now, page, 1 if logged_in else 0, now),
         )
+        _conn.commit()
+
+
+def live_touch(session_id, page, logged_in):
+    """Only update live presence (no view count) — for heartbeat ping."""
+    now = time.time()
+    with _lock:
         _conn.execute(
             """INSERT INTO live_sessions (session_id, page, logged_in, last_seen)
                VALUES (?, ?, ?, ?)
@@ -503,6 +525,40 @@ def feedback_toggle_action(fb_id):
         _conn.execute("UPDATE feedback SET action_done=? WHERE id=?", (new_val, fb_id))
         _conn.commit()
     return new_val
+
+
+# --------------------------------------------------------------- ROLES
+import json as _json
+
+
+def role_upsert(name, permissions):
+    with _lock:
+        _conn.execute(
+            """INSERT INTO roles (name, permissions, created_at) VALUES (?,?,?)
+               ON CONFLICT(name) DO UPDATE SET permissions=?""",
+            (name, _json.dumps(permissions), time.time(), _json.dumps(permissions)),
+        )
+        _conn.commit()
+
+
+def role_get(name):
+    with _lock:
+        row = _conn.execute("SELECT * FROM roles WHERE name=?", (name,)).fetchone()
+    if not row:
+        return None
+    return {"name": row["name"], "permissions": _json.loads(row["permissions"] or "[]")}
+
+
+def role_list():
+    with _lock:
+        rows = _conn.execute("SELECT * FROM roles ORDER BY created_at ASC").fetchall()
+    return [{"name": r["name"], "permissions": _json.loads(r["permissions"] or "[]")} for r in rows]
+
+
+def role_delete(name):
+    with _lock:
+        _conn.execute("DELETE FROM roles WHERE name=?", (name,))
+        _conn.commit()
 def new_session_id():
     return uuid.uuid4().hex
 

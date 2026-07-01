@@ -523,8 +523,21 @@ loadFonts();
       window.__SMVS_ROLE__ = me.role || "user";   // read by inline devtools-guard script in <head>
       window.__SMVS_USER__ = me.username;
       $("#uname").textContent="👤 "+me.username;
-      if(me.role==="admin") $("#adminLink").hidden=false;
+      if(me.has_admin) $("#adminLink").hidden=false;   // any admin-tab access → show Admin link
       $("#userbar").hidden=false;
+      // Feature gating by permission
+      if(me.can_feedback===false){ const fb=$("#feedbackBtn"); if(fb) fb.style.display="none"; }
+      if(me.can_ocr===false){
+        // User lacks OCR permission — show a notice, hide the conversion UI
+        const main=document.querySelector(".grid")||document.querySelector("main");
+        if(main){
+          main.style.display="none";
+          const note=document.createElement("div");
+          note.style.cssText="max-width:600px;margin:60px auto;text-align:center;background:#fff;border-radius:16px;padding:40px;box-shadow:0 4px 24px rgba(0,0,0,.08)";
+          note.innerHTML='<div style="font-size:40px;margin-bottom:12px">🔒</div><h2 style="margin:0 0 8px;color:#2c2c4a">No OCR Access</h2><p style="color:#888">Your account does not have permission to use OCR conversion. Please contact the administrator.</p>';
+          (document.querySelector(".wrap")||document.body).appendChild(note);
+        }
+      }
     }
   }catch(e){}
   finally{
@@ -569,6 +582,13 @@ $("#logoutBtn")&&($("#logoutBtn").onclick=async()=>{
 
 // ---------- heartbeat ping (live visitor tracking, Step 5) ----------
 setInterval(()=>{ fetch("/api/ping",{method:"POST"}).catch(()=>{}); }, 25000);
+// Count a page view only once per browser-tab session (not on refresh) — point 10
+try{
+  if(!sessionStorage.getItem("smvs_viewed")){
+    sessionStorage.setItem("smvs_viewed","1");
+    fetch("/api/track-view",{method:"POST"}).catch(()=>{});
+  }
+}catch{ fetch("/api/track-view",{method:"POST"}).catch(()=>{}); }
 
 // ---------- Feedback Modal ----------
 (function(){

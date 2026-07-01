@@ -17,57 +17,97 @@ fetch("/api/version").then(r=>r.json()).then(d=>{
 
 
 // ---------- Users ----------
+let _usersData=[], _rolesData=[], _userPage=1, _userPageSize=25, _editingUser=null;
+
 async function loadUsers(){
   const wrap=$("#usersWrap");
   let d; try{ d=await (await fetch("/api/admin/users")).json(); }catch{ wrap.innerHTML='<div class="empty">Failed to load.</div>'; return; }
-  const us=d.users||[];
-  let h='<table><thead><tr><th>Username</th><th>First Name</th><th>Last Name</th><th>Email</th><th>Role</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead><tbody>';
-  us.forEach(u=>{
+  _usersData=d.users||[]; _rolesData=d.roles||[];
+  renderUsers();
+}
+
+function renderUsers(){
+  const wrap=$("#usersWrap");
+  const us=_usersData;
+  if(!us.length){ wrap.innerHTML='<div class="empty">No users yet.</div>'; return; }
+  const total=us.length;
+  const pages=Math.max(1,Math.ceil(total/_userPageSize));
+  if(_userPage>pages)_userPage=pages;
+  const start=(_userPage-1)*_userPageSize;
+  const pageItems=us.slice(start,start+_userPageSize);
+  let h='<div style="overflow-x:auto"><table><thead><tr><th>Username</th><th>First Name</th><th>Last Name</th><th>Email</th><th>Role</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead><tbody>';
+  pageItems.forEach(u=>{
     const role=`<span class="pill-role ${u.role==='admin'?'pill-admin':''}">${esc(u.role)}</span>`;
-    const statusPill = u.status==='pending'
-      ? `<span class="status-pill status-queued">⏳ Pending</span>`
-      : `<span class="status-pill status-completed">✓ Active</span>`;
-    let act;
-    if(u.builtin){
-      act='<span class="muted">built-in</span>';
-    } else if(u.status==='pending'){
+    let statusPill, act;
+    if(u.status==='pending'){
+      statusPill=`<span class="status-pill status-queued">⏳ Pending</span>`;
       act=`<button class="add-btn" style="padding:5px 10px;font-size:12px" data-approve-user="${esc(u.username)}">✅ Approve</button>`+
           `<button class="mini-danger" data-reject-user="${esc(u.username)}">✗ Reject</button>`;
     } else {
-      act=`<button class="mini-reset" data-reset-user="${esc(u.username)}" title="Password Reset">🔑 Reset</button>`+
+      statusPill=u.status==='inactive'
+        ? `<span class="status-pill status-error">Inactive</span>`
+        : `<span class="status-pill status-completed">✓ Active</span>`;
+      const toggleLbl=u.status==='inactive'?'Activate':'Deactivate';
+      act=`<button class="mini-reset" data-edit-user="${esc(u.username)}">✏️ Edit</button>`+
+          `<button class="mini-reset" data-toggle-user="${esc(u.username)}">${toggleLbl}</button>`+
+          `<button class="mini-reset" data-reset-user="${esc(u.username)}" title="Password Reset">🔑</button>`+
           `<button class="mini-danger" data-del-user="${esc(u.username)}">Delete</button>`;
     }
-    h+=`<tr><td><b>${esc(u.username)}</b></td><td>${esc(u.first_name||'—')}</td><td>${esc(u.last_name||'—')}</td><td class="muted">${esc(u.email||'—')}</td><td>${role}</td><td>${statusPill}</td><td style="text-align:right">${act}</td></tr>`;
+    h+=`<tr><td><b>${esc(u.username)}</b></td><td>${esc(u.first_name||'—')}</td><td>${esc(u.last_name||'—')}</td><td class="muted">${esc(u.email||'—')}</td><td>${role}</td><td>${statusPill}</td><td style="text-align:right;white-space:nowrap">${act}</td></tr>`;
   });
-  h+='</tbody></table>';
+  h+='</tbody></table></div>';
+  h+=paginationBar(total,_userPage,_userPageSize,'user');
   wrap.innerHTML=h;
+  bindPagination('user',(p,s)=>{_userPage=p;_userPageSize=s;renderUsers();});
   wrap.querySelectorAll("[data-del-user]").forEach(b=>b.onclick=()=>deleteUser(b.getAttribute("data-del-user")));
   wrap.querySelectorAll("[data-reset-user]").forEach(b=>b.onclick=()=>openResetModal(b.getAttribute("data-reset-user")));
+  wrap.querySelectorAll("[data-edit-user]").forEach(b=>b.onclick=()=>openUserModal(b.dataset.editUser));
+  wrap.querySelectorAll("[data-toggle-user]").forEach(b=>b.onclick=async()=>{
+    await fetch("/api/admin/users/toggle-active",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:b.dataset.toggleUser})});
+    toast("User status updated"); loadUsers();
+  });
   wrap.querySelectorAll("[data-approve-user]").forEach(b=>b.onclick=async()=>{
     b.disabled=true; b.textContent="…";
     const r=await fetch("/api/admin/users/approve",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:b.dataset.approveUser})});
     const dd=await r.json();
-    if(r.ok&&dd.ok){ toast("User approved & notified via email"); loadUsers(); }
+    if(r.ok&&dd.ok){ toast("User approved & notified"); loadUsers(); }
     else { toast(dd.error||"Failed","err"); b.disabled=false; b.textContent="✅ Approve"; }
   });
   wrap.querySelectorAll("[data-reject-user]").forEach(b=>b.onclick=async()=>{
-    if(!confirm(`Reject and delete signup request for "${b.dataset.rejectUser}"?`)) return;
+    if(!confirm(`Reject signup for "${b.dataset.rejectUser}"?`)) return;
     await fetch("/api/admin/users/reject",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({username:b.dataset.rejectUser})});
     toast("Request rejected"); loadUsers();
   });
 }
+
+// User create/edit modal
+function openUserModal(username){
+  _editingUser = username || null;
+  const isEdit = !!username;
+  $("#userModalTitle").textContent = isEdit ? "✏️ Edit User" : "👤 Create User";
+  $("#userModalErr").style.display="none";
+  // role dropdown
+  const roleSel=$("#umRole");
+  roleSel.innerHTML=_rolesData.map(r=>`<option value="${esc(r)}">${esc(r)}</option>`).join("");
+  $("#umPassRow").style.display = isEdit ? "none" : "block";  // edit ma password alag reset flow
+  $("#umSaveBtn").textContent = isEdit ? "Save Changes" : "Create User";
+  $("#umUserHint").textContent = "";
+  if(isEdit){
+    const u=_usersData.find(x=>x.username===username);
+    $("#umFname").value=u.first_name||""; $("#umLname").value=u.last_name||"";
+    $("#umUser").value=u.username; $("#umUser").disabled=true;
+    $("#umEmail").value=u.email||""; roleSel.value=u.role;
+  } else {
+    $("#umFname").value=""; $("#umLname").value=""; $("#umUser").value="";
+    $("#umUser").disabled=false; $("#umEmail").value=""; $("#umPass").value="";
+    if(_rolesData.includes("user")) roleSel.value="user";
+  }
+  $("#userModal").classList.add("open");
+}
+
 async function addUser(){
-  const username=$("#nuUser").value.trim(), password=$("#nuPass").value;
-  const email=$("#nuEmail").value.trim(), fname=$("#nuFname").value.trim(), lname=$("#nuLname").value.trim();
-  if(!username||!password){ toast("Enter username and password","err"); return; }
-  try{
-    const r=await fetch("/api/admin/users",{method:"POST",headers:{"Content-Type":"application/json"},
-      body:JSON.stringify({username,password,email,first_name:fname,last_name:lname})});
-    const d=await r.json();
-    if(!r.ok||d.error){ toast(d.error||"Failed","err"); return; }
-    $("#nuUser").value=""; $("#nuPass").value=""; $("#nuEmail").value=""; $("#nuFname").value=""; $("#nuLname").value="";
-    toast(`User "${username}" created`); loadUsers();
-  }catch{ toast("Network error","err"); }
+  // legacy caller — now opens modal
+  openUserModal(null);
 }
 async function deleteUser(username){
   if(!confirm(`Delete user "${username}"?`)) return;
@@ -660,6 +700,173 @@ document.addEventListener("click",(e)=>{
   if(e.target.id==="fbViewCloseBtn"||e.target.id==="fbViewModal") $("#fbViewModal").classList.remove("open");
 });
 
+// ===================== Pagination Helper =====================
+function paginationBar(total, page, size, key){
+  const pages=Math.max(1,Math.ceil(total/size));
+  const from=total===0?0:(page-1)*size+1;
+  const to=Math.min(page*size,total);
+  return `<div class="pgbar" data-pg="${key}">
+    <span class="pg-info">${from}–${to} of ${total}</span>
+    <span class="pg-size">Per page:
+      <select data-pgsize>
+        <option value="10" ${size===10?'selected':''}>10</option>
+        <option value="25" ${size===25?'selected':''}>25</option>
+        <option value="50" ${size===50?'selected':''}>50</option>
+        <option value="100" ${size===100?'selected':''}>100</option>
+      </select></span>
+    <span class="pg-nav">
+      <button data-pgprev ${page<=1?'disabled':''}>‹ Prev</button>
+      <span class="pg-page">${page} / ${pages}</span>
+      <button data-pgnext ${page>=pages?'disabled':''}>Next ›</button>
+    </span></div>`;
+}
+function bindPagination(key, cb){
+  const bar=document.querySelector(`.pgbar[data-pg="${key}"]`);
+  if(!bar) return;
+  const sizeSel=bar.querySelector("[data-pgsize]");
+  const prev=bar.querySelector("[data-pgprev]");
+  const next=bar.querySelector("[data-pgnext]");
+  const curPage=parseInt(bar.querySelector(".pg-page").textContent);
+  sizeSel.onchange=()=>cb(1,parseInt(sizeSel.value));
+  if(prev) prev.onclick=()=>cb(curPage-1,parseInt(sizeSel.value));
+  if(next) next.onclick=()=>cb(curPage+1,parseInt(sizeSel.value));
+}
+
+// ===================== User Modal Handlers =====================
+(function(){
+  const modal=$("#userModal");
+  if(!modal) return;
+  $("#openCreateUserBtn") && ($("#openCreateUserBtn").onclick=()=>openUserModal(null));
+  $("#umCancelBtn").onclick=()=>modal.classList.remove("open");
+  modal.addEventListener("click",e=>{ if(e.target===modal) modal.classList.remove("open"); });
+  // live username availability in create mode
+  let ut=null;
+  $("#umUser").addEventListener("input",function(){
+    if(_editingUser) return;
+    const hint=$("#umUserHint"); const v=this.value.trim();
+    clearTimeout(ut); hint.textContent="";
+    if(v.length<3) return;
+    ut=setTimeout(async()=>{
+      try{ const d=await(await fetch(`/api/check-username?username=${encodeURIComponent(v)}`)).json();
+        hint.textContent=d.available?"✓ available":"✗ "+d.reason;
+        hint.style.color=d.available?"#1e8449":"#e74c3c";
+      }catch{}
+    },400);
+  });
+  $("#umSaveBtn").onclick=async()=>{
+    const err=$("#userModalErr"); err.style.display="none";
+    const fn=$("#umFname").value.trim(), ln=$("#umLname").value.trim();
+    const un=$("#umUser").value.trim(), em=$("#umEmail").value.trim();
+    const role=$("#umRole").value, pass=$("#umPass").value;
+    function e(t){ err.textContent=t; err.style.display="block"; }
+    if(!fn) return e("First name required.");
+    if(!ln) return e("Last name required.");
+    if(!em||!em.includes("@")) return e("Valid email required.");
+    $("#umSaveBtn").disabled=true;
+    try{
+      let r,d;
+      if(_editingUser){
+        r=await fetch("/api/admin/users/edit",{method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({username:_editingUser,first_name:fn,last_name:ln,email:em,role})});
+      } else {
+        if(un.length<5) { $("#umSaveBtn").disabled=false; return e("Username min 5 chars."); }
+        if(pass.length<4){ $("#umSaveBtn").disabled=false; return e("Password min 4 chars."); }
+        r=await fetch("/api/admin/users",{method:"POST",headers:{"Content-Type":"application/json"},
+          body:JSON.stringify({username:un,password:pass,email:em,first_name:fn,last_name:ln,role})});
+      }
+      d=await r.json();
+      if(r.ok&&d.ok){ toast(_editingUser?"User updated":"User created"); modal.classList.remove("open"); loadUsers(); }
+      else e(d.error||"Failed.");
+    }catch{ e("Network error."); }
+    $("#umSaveBtn").disabled=false;
+  };
+})();
+
+// ===================== Role Management =====================
+let _permCatalog={}, _editingRole=null;
+
+async function loadRoles(){
+  const wrap=$("#rolesWrap");
+  try{
+    const d=await (await fetch("/api/admin/roles")).json();
+    _permCatalog=d.catalog||{};
+    const roles=d.roles||[];
+    if(!roles.length){ wrap.innerHTML='<div class="empty">No custom roles yet. Click "Create Role".</div>'; return; }
+    const rows=roles.map(r=>{
+      const permCount=r.permissions.length;
+      const isBuiltin=(r.name==='admin'||r.name==='user');
+      return `<tr>
+        <td><b>${esc(r.name)}</b>${isBuiltin?' <span class="muted" style="font-size:11px">(built-in)</span>':''}</td>
+        <td>${permCount} permission${permCount!==1?'s':''}</td>
+        <td class="muted" style="max-width:340px;font-size:12px">${r.permissions.map(esc).join(', ')||'—'}</td>
+        <td style="text-align:right;white-space:nowrap">
+          <button class="mini-reset" data-edit-role="${esc(r.name)}">✏️ Edit</button>
+          ${isBuiltin?'':`<button class="mini-danger" data-del-role="${esc(r.name)}">Delete</button>`}
+        </td></tr>`;
+    }).join("");
+    wrap.innerHTML=`<div style="overflow-x:auto"><table><thead><tr><th>Role</th><th>Access</th><th>Permissions</th><th style="text-align:right">Actions</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    wrap.querySelectorAll("[data-edit-role]").forEach(b=>b.onclick=()=>openRoleModal(b.dataset.editRole,roles));
+    wrap.querySelectorAll("[data-del-role]").forEach(b=>b.onclick=async()=>{
+      if(!confirm(`Delete role "${b.dataset.delRole}"? Users with this role become 'user'.`)) return;
+      const r=await fetch("/api/admin/roles/delete",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:b.dataset.delRole})});
+      const d=await r.json();
+      if(r.ok&&d.ok){ toast("Role deleted"); loadRoles(); } else toast(d.error||"Failed","err");
+    });
+  }catch{ wrap.innerHTML='<div class="empty">Could not load roles.</div>'; }
+}
+
+function renderPermCheckboxes(selected){
+  selected=selected||[];
+  let h="";
+  for(const [group,items] of Object.entries(_permCatalog)){
+    h+=`<div style="margin-bottom:14px"><div style="font-size:11.5px;font-weight:700;color:#5b4326;margin-bottom:6px;text-transform:uppercase">${esc(group)}</div>`;
+    items.forEach(it=>{
+      const chk=selected.includes(it.key)?"checked":"";
+      h+=`<label style="display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:8px;cursor:pointer;font-size:13px" class="perm-row">
+        <input type="checkbox" value="${esc(it.key)}" ${chk} style="width:16px;height:16px;accent-color:var(--saffron)"> ${esc(it.label)}</label>`;
+    });
+    h+=`</div>`;
+  }
+  return h;
+}
+
+function openRoleModal(name, roles){
+  _editingRole=name||null;
+  $("#roleModalErr").style.display="none";
+  $("#roleModalTitle").textContent=name?"✏️ Edit Role":"🛡️ Create Role";
+  $("#rmName").value=name||""; $("#rmName").disabled=!!name;
+  const selected=name&&roles?(roles.find(r=>r.name===name)||{}).permissions||[]:[];
+  $("#rmPermsWrap").innerHTML=renderPermCheckboxes(selected);
+  $("#roleModal").classList.add("open");
+}
+
+(function(){
+  const modal=$("#roleModal");
+  if(!modal) return;
+  $("#openCreateRoleBtn") && ($("#openCreateRoleBtn").onclick=()=>{
+    // ensure catalog loaded
+    if(Object.keys(_permCatalog).length) openRoleModal(null,null);
+    else fetch("/api/admin/roles").then(r=>r.json()).then(d=>{_permCatalog=d.catalog||{};openRoleModal(null,null);});
+  });
+  $("#rmCancelBtn").onclick=()=>modal.classList.remove("open");
+  modal.addEventListener("click",e=>{ if(e.target===modal) modal.classList.remove("open"); });
+  $("#rmSaveBtn").onclick=async()=>{
+    const err=$("#roleModalErr"); err.style.display="none";
+    const name=$("#rmName").value.trim().toLowerCase();
+    if(!name){ err.textContent="Role name required."; err.style.display="block"; return; }
+    const perms=[...modal.querySelectorAll("#rmPermsWrap input:checked")].map(c=>c.value);
+    $("#rmSaveBtn").disabled=true;
+    try{
+      const r=await fetch("/api/admin/roles",{method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({name,permissions:perms})});
+      const d=await r.json();
+      if(r.ok&&d.ok){ toast("Role saved"); modal.classList.remove("open"); loadRoles(); }
+      else { err.textContent=d.error||"Failed."; err.style.display="block"; }
+    }catch{ err.textContent="Network error."; err.style.display="block"; }
+    $("#rmSaveBtn").disabled=false;
+  };
+})();
+
 // ===================== Tab Navigation =====================
 (function(){
   const nav = $("#adminTabNav");
@@ -675,6 +882,7 @@ document.addEventListener("click",(e)=>{
       loaded.add(tab);
       if(tab==="dashboard" && typeof refreshDashboard==="function") refreshDashboard("month");
       if(tab==="users" && typeof loadUsers==="function") loadUsers();
+      if(tab==="roles" && typeof loadRoles==="function") loadRoles();
       if(tab==="fonts" && typeof loadFonts==="function") loadFonts();
       if(tab==="jobs" && typeof loadJobs==="function") loadJobs();
       if(tab==="cloud" && typeof window.loadCloudPanel==="function") window.loadCloudPanel();
@@ -691,9 +899,24 @@ document.addEventListener("click",(e)=>{
 
   buttons.forEach(b=> b.onclick = () => activate(b.dataset.tab));
 
-  // Default: Dashboard open thay (jevu requested chhe) — last-used tab yaad nathi rakhvanu,
-  // hamesha Dashboard j default rahe.
-  activate("dashboard");
+  // Permission-based tab visibility — fetch /api/me, hide tabs user can't access.
+  // Roles tab only for superadmin.
+  fetch("/api/me").then(r=>r.json()).then(me=>{
+    const isSuper = me.role === "superadmin";
+    const allowed = me.allowed_tabs || [];
+    let firstVisible = null;
+    buttons.forEach(b=>{
+      const tab=b.dataset.tab;
+      const permKey="admin."+tab;
+      let show = isSuper || allowed.includes(permKey);
+      if(tab==="roles" && !isSuper) show=false;   // role mgmt superadmin-only
+      b.style.display = show ? "" : "none";
+      if(show && !firstVisible) firstVisible=tab;
+    });
+    // activate dashboard if allowed, else first visible tab
+    const startTab = (isSuper || allowed.includes("admin.dashboard")) ? "dashboard" : (firstVisible||"dashboard");
+    activate(startTab);
+  }).catch(()=>activate("dashboard"));
 })();
 
 // ===================== Email Settings Tab =====================
