@@ -582,6 +582,13 @@ $("#logoutBtn")&&($("#logoutBtn").onclick=async()=>{
 
 // ---------- heartbeat ping (live visitor tracking, Step 5) ----------
 setInterval(()=>{ fetch("/api/ping",{method:"POST"}).catch(()=>{}); }, 25000);
+// Session validity check — logout if session invalidated (logout-all / redeploy / account removed)
+setInterval(async()=>{
+  try{
+    const r=await fetch("/api/me",{cache:"no-store"});
+    if(r.status===401){ window.location.href="/login"; }
+  }catch{}
+}, 30000);
 // Count a page view only once per browser-tab session (not on refresh) — point 10
 try{
   if(!sessionStorage.getItem("smvs_viewed")){

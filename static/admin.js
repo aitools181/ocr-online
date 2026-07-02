@@ -39,6 +39,14 @@ fetch("/api/version").then(r=>r.json()).then(d=>{
   const el=$("#versionBadge"); if(el) el.textContent=`v${d.version} · ${d.date}`;
 }).catch(()=>{});
 
+// Periodic session check — if session was invalidated (logout-all / redeploy / user removed), redirect to login
+setInterval(async()=>{
+  try{
+    const r=await fetch("/api/me",{cache:"no-store"});
+    if(r.status===401){ window.location.href="/login"; }
+  }catch{}
+}, 30000);
+
 
 // ---------- Users ----------
 let _usersData=[], _rolesData=[], _userPage=1, _userPageSize=25, _editingUser=null;
@@ -48,6 +56,39 @@ async function loadUsers(){
   let d; try{ d=await (await fetch("/api/admin/users")).json(); }catch{ wrap.innerHTML='<div class="empty">Failed to load.</div>'; return; }
   _usersData=d.users||[]; _rolesData=d.roles||[];
   renderUsers();
+}
+
+// ===================== Session Out =====================
+window.loadSessions = async function(){
+  const wrap=$("#sessionsWrap");
+  if(!wrap) return;
+  wrap.innerHTML='<div class="empty">Loading…</div>';
+  let d; try{ d=await (await fetch("/api/admin/sessions/active")).json(); }
+  catch{ wrap.innerHTML='<div class="empty">Failed to load.</div>'; return; }
+  const users=d.users||[];
+  if(!users.length){ wrap.innerHTML='<div class="empty">No recently active users.</div>'; return; }
+  const rows=users.map(u=>{
+    const name=`${esc(u.first_name||'')} ${esc(u.last_name||'')}`.trim()||'—';
+    const selfTag = u.is_self ? ' <span class="muted" style="font-size:11px">(you)</span>' : '';
+    return `<tr>
+      <td><input type="checkbox" class="sess-cb" value="${esc(u.username)}"></td>
+      <td><b>${esc(u.username)}</b>${selfTag}</td>
+      <td>${name}</td>
+      <td><span class="pill-role ${u.role==='admin'?'pill-admin':''}">${esc(u.role)}</span></td>
+    </tr>`;
+  });
+  const header=`<tr>
+    <th style="width:36px"><input type="checkbox" id="sessSelectAll"></th>
+    <th>Username</th><th>Name</th><th>Role</th></tr>`;
+  renderPaginatedTable("sessionsWrap", rows, header, "sessions", {defaultSize:25, emptyMsg:"No active users.", noSort:[0],
+    onBind:(el)=>{
+      const selAll=el.querySelector("#sessSelectAll");
+      if(selAll) selAll.onclick=()=>{ el.querySelectorAll(".sess-cb").forEach(cb=>cb.checked=selAll.checked); };
+    }});
+};
+
+function _selectedSessionUsers(){
+  return [...document.querySelectorAll("#sessionsWrap .sess-cb:checked")].map(cb=>cb.value);
 }
 
 function renderUsers(){
@@ -1082,6 +1123,24 @@ document.addEventListener("click",(e)=>{
   const modal=$("#userModal");
   if(!modal) return;
   $("#openCreateUserBtn") && ($("#openCreateUserBtn").onclick=()=>openUserModal(null));
+  // Session Out buttons
+  $("#sessRefreshBtn") && ($("#sessRefreshBtn").onclick=()=>window.loadSessions());
+  $("#sessLogoutSelBtn") && ($("#sessLogoutSelBtn").onclick=async()=>{
+    const sel=_selectedSessionUsers();
+    if(!sel.length){ toast("Select at least one user.","err"); return; }
+    if(!confirm(`Force logout ${sel.length} user(s)? They will need to sign in again.`)) return;
+    const r=await fetch("/api/admin/sessions/logout-users",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({usernames:sel})});
+    const d=await r.json();
+    if(r.ok&&d.ok){ toast(`${d.count} user(s) logged out`); window.loadSessions(); }
+    else toast(d.error||"Failed","err");
+  });
+  $("#sessLogoutAllBtn") && ($("#sessLogoutAllBtn").onclick=async()=>{
+    if(!confirm("⚠️ Log out ALL users (including yourself)? Everyone must sign in again.")) return;
+    const r=await fetch("/api/admin/sessions/logout-all",{method:"POST"});
+    const d=await r.json();
+    if(r.ok&&d.ok){ toast("All users logged out"); setTimeout(()=>location.href="/login",1200); }
+    else toast(d.error||"Failed","err");
+  });
   $("#umCancelBtn").onclick=()=>modal.classList.remove("open");
   modal.addEventListener("click",e=>{ if(e.target===modal) modal.classList.remove("open"); });
   // live username availability in create mode
@@ -1230,6 +1289,7 @@ function openRoleModal(name, roles){
         if(st==="alljobs" && typeof window.loadCloudAllJobs==="function") window.loadCloudAllJobs();
         if(st==="pending" && typeof window.loadCloudPending==="function") window.loadCloudPending();
       }
+      if(group==="users" && st==="sessions" && typeof window.loadSessions==="function") window.loadSessions();
     });
   });
 })();

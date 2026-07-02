@@ -334,7 +334,29 @@
       <h2>👤 User Management</h2>
       <button id="openCreateUserBtn" class="add-btn" type="button">+ Create User</button>
     </div>
-    <div id="usersWrap"></div>
+
+    <div class="subtab-nav" data-subnav="users">
+      <button data-subtab="userlist" class="active" type="button">👥 Users</button>
+      <button data-subtab="sessions" type="button">🔒 Session Out</button>
+    </div>
+
+    <div class="subtab-panel" data-subpanel="userlist">
+      <div id="usersWrap"></div>
+    </div>
+
+    <div class="subtab-panel" data-subpanel="sessions" hidden>
+      <p class="muted" style="font-size:13px;margin:0 0 14px">
+        Recently active users (logged in within last 24 hours). Select users and force logout,
+        or log out everyone at once. Users will need to sign in again.
+      </p>
+      <div class="bar-actions" style="margin-bottom:14px">
+        <button id="sessLogoutSelBtn" class="btn-ghost" type="button">🔒 Logout Selected</button>
+        <button id="sessLogoutAllBtn" class="mini-danger" type="button" style="padding:9px 18px;font-size:13px">⚠️ Logout ALL Users</button>
+        <span class="spacer"></span>
+        <button id="sessRefreshBtn" class="btn-ghost" type="button">↻ Refresh</button>
+      </div>
+      <div id="sessionsWrap"></div>
+    </div>
   </div>
 
   <!-- Role Management -->

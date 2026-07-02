@@ -77,6 +77,29 @@ def _bootstrap_roles():
         db.role_upsert("user", ["app.ocr", "app.feedback"])
 _bootstrap_roles()
 
+# Auto session-invalidation on redeploy:
+# When the deployed code changes (new build), invalidate all existing sessions so
+# everyone must log in again. We detect a new deploy via a signature (version + app.py mtime).
+def _check_redeploy_logout():
+    try:
+        marker = os.path.join(JOBS, "_data", "deploy_marker.txt")
+        os.makedirs(os.path.dirname(marker), exist_ok=True)
+        try:
+            sig_now = f"{APP_VERSION}|{int(os.path.getmtime(os.path.abspath(__file__)))}"
+        except Exception:
+            sig_now = f"{APP_VERSION}|{int(time.time())}"
+        old_sig = ""
+        if os.path.isfile(marker):
+            with open(marker) as f:
+                old_sig = f.read().strip()
+        if old_sig != sig_now:
+            db.session_set_cutoff("global")   # expire all sessions issued before now
+            with open(marker, "w") as f:
+                f.write(sig_now)
+    except Exception as e:
+        print(f"[redeploy-logout] check failed: {e}")
+_check_redeploy_logout()
+
 # ------------------------------------------------------------------ AUTH
 USERS_DIR = os.path.join(JOBS, "_users")
 os.makedirs(USERS_DIR, exist_ok=True)
@@ -217,6 +240,7 @@ def _endpoint_permission(path):
     """Map an /api/admin/* path to the admin.* permission it requires. None = no specific gate."""
     mapping = [
         ("/api/admin/dashboard", "admin.dashboard"),
+        ("/api/admin/sessions",  "admin.users"),   # session management lives under User Management
         ("/api/admin/users",     "admin.users"),
         ("/api/admin/roles",     "admin.roles"),
         ("/api/admin/permissions-catalog", "admin.roles"),
@@ -234,8 +258,9 @@ def _endpoint_permission(path):
 
 
 def _make_token(username, role):
-    exp = int(time.time()) + SESSION_DAYS * 86400
-    payload = f"{username}|{role}|{exp}"
+    now = time.time()
+    exp = int(now) + SESSION_DAYS * 86400
+    payload = f"{username}|{role}|{exp}|{now:.3f}"
     sig = hmac.new(SECRET, payload.encode(), hashlib.sha256).hexdigest()
     return base64.urlsafe_b64encode(f"{payload}|{sig}".encode()).decode()
 
@@ -245,11 +270,25 @@ def _read_token(token):
         return None
     try:
         raw = base64.urlsafe_b64decode(token.encode()).decode()
-        username, role, exp, sig = raw.rsplit("|", 3)
-        payload = f"{username}|{role}|{exp}"
+        # New format: username|role|exp|iat|sig ; old format: username|role|exp|sig
+        parts = raw.rsplit("|", 4)
+        if len(parts) == 5:
+            username, role, exp, iat, sig = parts
+            payload = f"{username}|{role}|{exp}|{iat}"
+        else:
+            username, role, exp, sig = raw.rsplit("|", 3)
+            payload = f"{username}|{role}|{exp}"
+            iat = "0"   # legacy token → issued-at unknown, treat as very old
         good = hmac.new(SECRET, payload.encode(), hashlib.sha256).hexdigest()
         if not hmac.compare_digest(sig, good) or int(exp) < time.time():
             return None
+        # Session invalidation check: token must be issued at/after any applicable cutoff
+        try:
+            cutoff = db.session_get_cutoff(username)
+            if cutoff and float(iat) < cutoff:
+                return None
+        except Exception:
+            pass
         return {"username": username, "role": role}
     except Exception:
         return None
@@ -856,8 +895,55 @@ async def admin_delete_user(payload: dict):
     if username in users:
         del users[username]
         _save_users(users)
+        db.session_set_cutoff(f"user:{username}")   # deleted user → kill their session too
         return {"ok": True}
     return JSONResponse({"error": "User not found (built-in admin can't be deleted)."}, status_code=400)
+
+
+@app.get("/api/admin/sessions/active")
+async def admin_sessions_active(request: Request):
+    """Recently-logged-in users (candidate pool) with a flag for who is currently online."""
+    me = getattr(request.state, "user", {})
+    users = _load_users()
+    cutoffs = {}
+    # Build list from users that have logged in within last 24h
+    candidates = db.session_active_users()
+    live = db.live_counts()  # for online count context
+    out = []
+    for uname in candidates:
+        if uname == ADMIN_USERNAME and me.get("role") != "superadmin":
+            continue  # hide built-in admin from non-superadmin
+        info = users.get(uname, {})
+        out.append({
+            "username": uname,
+            "first_name": info.get("first_name", ""),
+            "last_name": info.get("last_name", ""),
+            "role": info.get("role", "user"),
+            "is_self": uname == me.get("username"),
+        })
+    return {"users": out, "logged_in_online": live.get("logged_in_online", 0)}
+
+
+@app.post("/api/admin/sessions/logout-users")
+async def admin_logout_users(payload: dict):
+    """Force logout selected users (invalidate their current sessions)."""
+    usernames = payload.get("usernames", [])
+    if not isinstance(usernames, list) or not usernames:
+        return JSONResponse({"error": "No users selected."}, status_code=400)
+    count = 0
+    for u in usernames:
+        u = str(u).strip()
+        if u:
+            db.session_set_cutoff(f"user:{u}")
+            count += 1
+    return {"ok": True, "count": count}
+
+
+@app.post("/api/admin/sessions/logout-all")
+async def admin_logout_all(request: Request):
+    """Force logout ALL users (global session invalidation)."""
+    db.session_set_cutoff("global")
+    return {"ok": True}
 
 
 @app.post("/api/admin/users/reset-password")

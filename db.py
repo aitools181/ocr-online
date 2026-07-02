@@ -125,6 +125,13 @@ def _init():
                 permissions TEXT NOT NULL DEFAULT '[]',
                 created_at  REAL NOT NULL
             );
+
+            -- Session invalidation: per-user + global cutoff timestamps.
+            -- A token is valid only if its issued-at (iat) >= the applicable cutoff.
+            CREATE TABLE IF NOT EXISTS session_control (
+                scope       TEXT PRIMARY KEY,   -- 'global' or 'user:<username>'
+                cutoff      REAL NOT NULL        -- tokens issued before this are invalid
+            );
             """
         )
         _conn.commit()
@@ -387,6 +394,51 @@ def live_counts(active_window_sec=60):
         ).fetchone()["c"]
     return {"total_online": total, "logged_in_online": logged_in,
             "pre_login_online": max(total - logged_in, 0)}
+
+
+# --------------------------------------------------------- SESSION INVALIDATION
+def session_set_cutoff(scope, cutoff=None):
+    """Set an invalidation cutoff. scope='global' logs everyone out;
+    scope='user:<name>' logs out that one user. Tokens issued before cutoff are rejected."""
+    if cutoff is None:
+        cutoff = time.time()
+    with _lock:
+        _conn.execute(
+            "INSERT INTO session_control (scope, cutoff) VALUES (?, ?) "
+            "ON CONFLICT(scope) DO UPDATE SET cutoff=?",
+            (scope, cutoff, cutoff),
+        )
+        _conn.commit()
+    return cutoff
+
+
+def session_get_cutoff(username):
+    """Highest applicable cutoff for a user (max of global and user-specific)."""
+    with _lock:
+        rows = _conn.execute(
+            "SELECT scope, cutoff FROM session_control WHERE scope IN ('global', ?)",
+            (f"user:{username}",),
+        ).fetchall()
+    cutoff = 0.0
+    for r in rows:
+        if r["cutoff"] > cutoff:
+            cutoff = r["cutoff"]
+    return cutoff
+
+
+def session_active_users(active_window_sec=120):
+    """Distinct logged-in usernames currently active (from live_sessions).
+    live_sessions doesn't store username, so we return count-based presence only.
+    Actual username list comes from recent login_history cross-referenced with live activity."""
+    cutoff = time.time() - active_window_sec
+    with _lock:
+        rows = _conn.execute(
+            "SELECT DISTINCT username FROM login_history "
+            "WHERE success=1 AND timestamp >= ? ORDER BY username",
+            (time.time() - 86400,),  # logged in within last 24h as candidate pool
+        ).fetchall()
+    return [r["username"] for r in rows if r["username"]]
+# ------------------------------------------------------ END SESSION INVALIDATION
 
 
 def page_view_totals(since_ts=None):
