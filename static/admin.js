@@ -331,9 +331,10 @@ async function loadDashLive(){
   }catch{ $("#dashLive").innerHTML=""; }
 }
 
-async function loadDashUserwise(){
+async function loadDashUserwise(range){
   try{
-    const d = await (await fetch("/api/admin/dashboard/userwise")).json();
+    const rq = range ? `?range=${encodeURIComponent(range)}` : "";
+    const d = await (await fetch("/api/admin/dashboard/userwise"+rq)).json();
     const rows = (d.users||[]).map((u,i)=>
       `<tr><td class="srno">${i+1}</td><td><b>${esc(u.username)}</b></td>
        <td class="muted">${esc(u.ip||"—")}</td><td class="muted">${esc(u.location||"—")}</td>
@@ -371,9 +372,10 @@ async function loadDashFailed(){
   }catch{ $("#dashFailed").innerHTML = `<div class="empty">Could not load.</div>`; }
 }
 
-async function loadDashLogins(){
+async function loadDashLogins(range){
   try{
-    const d = await (await fetch("/api/admin/dashboard/logins?limit=500")).json();
+    const rq = range ? `&range=${encodeURIComponent(range)}` : "";
+    const d = await (await fetch(`/api/admin/dashboard/logins?limit=500${rq}`)).json();
     const rows = (d.logins||[]).map(l=>
       `<tr><td>${esc(l.username||"—")}</td><td>${esc(l.ip||"—")}</td>
        <td class="muted" style="max-width:200px">${esc((l.device||"").slice(0,60))}</td>
@@ -406,26 +408,26 @@ async function loadDashJobs(){
 }
 
 function refreshDashboard(range){
-  loadDashSummary(range); loadDashLive(); loadDashUserwise();
-  loadDashFailed(); loadDashLogins(); loadDashJobs();
+  loadDashSummary(range); loadDashLive(); loadDashUserwise(range);
+  loadDashFailed(); loadDashLogins(range); loadDashJobs();
 }
 
+let _dashRange = "month";
 if($("#dashCard")){
-  let currentRange = "month";
   const rangeGroup = $("#dashRangeGroup");
   rangeGroup.querySelectorAll("button").forEach(btn=>{
     btn.onclick=()=>{
       rangeGroup.querySelectorAll("button").forEach(b=>b.classList.remove("active"));
       btn.classList.add("active");
-      currentRange = btn.dataset.range;
-      refreshDashboard(currentRange);
+      _dashRange = btn.dataset.range;
+      refreshDashboard(_dashRange);
     };
   });
   $("#jobSearchBtn").onclick = loadDashJobs;
   $("#jobSearch").addEventListener("keydown", e=>{ if(e.key==="Enter") loadDashJobs(); });
-  refreshDashboard(currentRange);
+  refreshDashboard(_dashRange);
   setInterval(loadDashLive, 20000);                          // live counter refresh
-  setInterval(()=>loadDashSummary(currentRange), 60000);     // periodic summary refresh
+  setInterval(()=>loadDashSummary(_dashRange), 60000);     // periodic summary refresh
 }
 
 // ===================== Cloud Storage Admin Panel (Step 6) =====================
@@ -754,21 +756,33 @@ function renderPaginatedTable(containerId, rowsHtmlArr, headerHtml, key, opts){
   opts = opts || {};
   const defSize = opts.defaultSize || 10;
   const tableClass = opts.tableClass || "";
-  if(!_pgState[key]) _pgState[key] = {page:1, size:defSize, sortCol:null, sortDir:1, filter:""};
+  if(!_pgState[key]) _pgState[key] = {page:1, size:defSize, sortCol:null, sortDir:1, search:"", colIdx:"", colVal:""};
   const st = _pgState[key];
-  if(st.filter===undefined) st.filter="";
+  if(st.search===undefined) st.search="";
+  if(st.colIdx===undefined) st.colIdx="";
+  if(st.colVal===undefined) st.colVal="";
   const el = document.getElementById(containerId);
   if(!el) return;
 
-  // Apply text filter across all cells
+  // Column names from header (for the filter dropdown)
+  const tmpHdr=document.createElement("thead"); tmpHdr.innerHTML=headerHtml;
+  const colNames=[...tmpHdr.querySelectorAll("th")].map(th=>(th.textContent||"").trim());
+  const noSortSet = opts.noSort || [];
+
+  // Apply global search (all cells)
   let rows = rowsHtmlArr.slice();
-  if(st.filter){
-    const q=st.filter.toLowerCase();
+  if(st.search){
+    const q=st.search.toLowerCase();
     rows = rows.filter(r=>{
       const tmp=document.createElement("tr");
       tmp.innerHTML=r.replace(/^<tr[^>]*>/,"").replace(/<\/tr>\s*$/,"");
       return (tmp.textContent||"").toLowerCase().includes(q);
     });
+  }
+  // Apply column filter (specific column contains value)
+  if(st.colIdx!=="" && st.colVal){
+    const ci=parseInt(st.colIdx); const q=st.colVal.toLowerCase();
+    rows = rows.filter(r=> _cellText(r,ci).includes(q));
   }
 
   // Apply sort if a column is selected
@@ -782,26 +796,38 @@ function renderPaginatedTable(containerId, rowsHtmlArr, headerHtml, key, opts){
     });
   }
 
-  const total = rows.length;
-  // Filter box (always shown if there are records or an active filter)
-  const filterBox = (opts.noFilter) ? "" :
-    `<div style="margin-bottom:12px"><input type="text" data-tblfilter placeholder="🔍 Filter table…"
-      value="${esc(st.filter||"")}" style="width:100%;max-width:320px;box-sizing:border-box;padding:8px 12px;
-      border:1px solid var(--line);border-radius:9px;font:inherit;font-size:13px" /></div>`;
-
   if(rowsHtmlArr.length===0){ el.innerHTML = `<div class="empty">${opts.emptyMsg||"No records."}</div>`; return; }
 
+  const total = rows.length;
   const pages = Math.max(1, Math.ceil(total/st.size));
   if(st.page>pages) st.page=pages;
   if(st.page<1) st.page=1;
   const startIdx = (st.page-1)*st.size;
   const pageRows = rows.slice(startIdx, startIdx+st.size).join("");
 
-  // Make header cells sortable (add arrow indicators)
+  // Controls bar: global search + column filter (skip if noFilter)
+  let controls="";
+  if(!opts.noFilter){
+    const colOptions = colNames.map((n,i)=> noSortSet.includes(i) ? "" :
+      `<option value="${i}" ${String(st.colIdx)===String(i)?'selected':''}>${esc(n)}</option>`).join("");
+    controls=`<div class="tbl-controls">
+      <input type="text" data-tblsearch placeholder="🔍 Search all…" value="${esc(st.search||"")}" class="tbl-search" />
+      <span class="tbl-filter-group">
+        <span class="muted" style="font-size:12px">Filter:</span>
+        <select data-tblcol class="tbl-colsel">
+          <option value="">— Column —</option>${colOptions}
+        </select>
+        <input type="text" data-tblcolval placeholder="value…" value="${esc(st.colVal||"")}" class="tbl-colval"
+          ${st.colIdx===""?"disabled":""} />
+        ${(st.search||st.colVal)?`<button data-tblclear class="tbl-clear">✕ Clear</button>`:""}
+      </span>
+    </div>`;
+  }
+
+  // Sortable headers
   const tmpH=document.createElement("thead"); tmpH.innerHTML=headerHtml;
-  const ths=tmpH.querySelectorAll("th");
-  ths.forEach((th,i)=>{
-    if(opts.noSort && opts.noSort.includes(i)) return;
+  tmpH.querySelectorAll("th").forEach((th,i)=>{
+    if(noSortSet.includes(i)) return;
     th.style.cursor="pointer"; th.style.userSelect="none";
     const arrow = st.sortCol===i ? (st.sortDir===1?" ▲":" ▼") : " ⇅";
     th.innerHTML=th.innerHTML+`<span style="opacity:.4;font-size:10px">${arrow}</span>`;
@@ -810,25 +836,36 @@ function renderPaginatedTable(containerId, rowsHtmlArr, headerHtml, key, opts){
   const headerFinal=tmpH.innerHTML;
 
   const tableBody = total===0
-    ? `<div class="empty">No rows match your filter.</div>`
+    ? `<div class="empty">No rows match your search/filter.</div>`
     : `<div style="overflow-x:auto"><table class="${tableClass}"><thead>${headerFinal}</thead><tbody>${pageRows}</tbody></table></div>`
       + paginationBar(total, st.page, st.size, key);
 
-  el.innerHTML = filterBox + tableBody;
+  el.innerHTML = controls + tableBody;
 
-  // Filter input handler
-  const fb=el.querySelector("[data-tblfilter]");
-  if(fb){
-    fb.oninput=()=>{ st.filter=fb.value; st.page=1; renderPaginatedTable(containerId, rowsHtmlArr, headerHtml, key, opts);
-      const nf=document.getElementById(containerId).querySelector("[data-tblfilter]");
+  // Handlers
+  const rerender=()=>renderPaginatedTable(containerId, rowsHtmlArr, headerHtml, key, opts);
+  const searchEl=el.querySelector("[data-tblsearch]");
+  if(searchEl){
+    searchEl.oninput=()=>{ st.search=searchEl.value; st.page=1; rerender();
+      const nf=document.getElementById(containerId).querySelector("[data-tblsearch]");
       if(nf){ nf.focus(); nf.setSelectionRange(nf.value.length,nf.value.length); } };
   }
+  const colSel=el.querySelector("[data-tblcol]");
+  if(colSel){ colSel.onchange=()=>{ st.colIdx=colSel.value; st.colVal=""; st.page=1; rerender(); }; }
+  const colValEl=el.querySelector("[data-tblcolval]");
+  if(colValEl){
+    colValEl.oninput=()=>{ st.colVal=colValEl.value; st.page=1; rerender();
+      const nf=document.getElementById(containerId).querySelector("[data-tblcolval]");
+      if(nf){ nf.focus(); nf.setSelectionRange(nf.value.length,nf.value.length); } };
+  }
+  const clearBtn=el.querySelector("[data-tblclear]");
+  if(clearBtn){ clearBtn.onclick=()=>{ st.search=""; st.colIdx=""; st.colVal=""; st.page=1; rerender(); }; }
   // Sort click handlers
   el.querySelectorAll("th[data-sortcol]").forEach(th=>{
     th.onclick=()=>{
       const col=parseInt(th.getAttribute("data-sortcol"));
       if(st.sortCol===col){ st.sortDir=-st.sortDir; } else { st.sortCol=col; st.sortDir=1; }
-      renderPaginatedTable(containerId, rowsHtmlArr, headerHtml, key, opts);
+      rerender();
     };
   });
   bindPagination(key, (p,s)=>{ st.page=p; st.size=s; renderPaginatedTable(containerId, rowsHtmlArr, headerHtml, key, opts); });
@@ -1049,7 +1086,7 @@ function openRoleModal(name, roles){
     panels.forEach(p=>{ p.hidden = p.dataset.panel!==tab; });
     if(!loaded.has(tab)){
       loaded.add(tab);
-      if(tab==="dashboard" && typeof refreshDashboard==="function") refreshDashboard("month");
+      if(tab==="dashboard" && typeof refreshDashboard==="function") refreshDashboard(_dashRange);
       if(tab==="users" && typeof loadUsers==="function") loadUsers();
       if(tab==="roles" && typeof loadRoles==="function") loadRoles();
       if(tab==="fonts" && typeof loadFonts==="function") loadFonts();

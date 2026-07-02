@@ -900,10 +900,29 @@ async def admin_delete_font(payload: dict):
 _RANGE_DAYS = {"today": 1, "15d": 15, "month": 30, "6m": 182, "all": None}
 
 
+def _range_since(range_key):
+    """Return the start-timestamp for a range. 'today' = aaj ni midnight thi (calendar day),
+    biji ranges = etla days pehla thi. 'all' = None (no limit)."""
+    import datetime as _dt
+    now = _dt.datetime.now()
+    if range_key == "today":
+        start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        return start.timestamp()
+    if range_key == "15d":
+        start = (now - _dt.timedelta(days=14)).replace(hour=0, minute=0, second=0, microsecond=0)
+        return start.timestamp()
+    if range_key == "month":
+        start = (now - _dt.timedelta(days=29)).replace(hour=0, minute=0, second=0, microsecond=0)
+        return start.timestamp()
+    if range_key == "6m":
+        start = (now - _dt.timedelta(days=181)).replace(hour=0, minute=0, second=0, microsecond=0)
+        return start.timestamp()
+    return None  # all
+
+
 @app.get("/api/admin/dashboard/summary")
 async def admin_dashboard_summary(range: str = "all"):
-    days = _RANGE_DAYS.get(range, None)
-    since = (time.time() - days * 86400) if days else None
+    since = _range_since(range)
     summary = db.dashboard_summary(since)
     summary["queue_depth"] = db.jobs_pending_count()
     summary["avg_sec_per_page"] = round(db.avg_seconds_per_page(), 2)
@@ -918,8 +937,9 @@ async def admin_dashboard_timeseries(range: str = "month"):
 
 
 @app.get("/api/admin/dashboard/userwise")
-async def admin_dashboard_userwise():
-    return {"users": db.dashboard_userwise()}
+async def admin_dashboard_userwise(range: str = "all"):
+    since = _range_since(range)
+    return {"users": db.dashboard_userwise(since)}
 
 
 @app.get("/api/admin/dashboard/live")
@@ -930,8 +950,9 @@ async def admin_dashboard_live():
 
 
 @app.get("/api/admin/dashboard/logins")
-async def admin_dashboard_logins(limit: int = 100):
-    return {"logins": db.login_history_recent(limit)}
+async def admin_dashboard_logins(limit: int = 500, range: str = "all"):
+    since = _range_since(range)
+    return {"logins": db.login_history_recent(limit, since)}
 
 
 @app.get("/api/admin/dashboard/failed-uploads")

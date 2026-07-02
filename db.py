@@ -293,10 +293,12 @@ def dashboard_timeseries(days=30):
     return [dict(r) for r in rows]
 
 
-def dashboard_userwise():
+def dashboard_userwise(since_ts=None):
+    where = "WHERE j.created_at >= ?" if since_ts else ""
+    params = [since_ts] if since_ts else []
     with _lock:
         rows = _conn.execute(
-            """SELECT j.username,
+            f"""SELECT j.username,
                       COUNT(*) total,
                       SUM(CASE WHEN j.status='completed' THEN 1 ELSE 0 END) completed,
                       SUM(CASE WHEN j.status IN ('queued','processing','uploading') THEN 1 ELSE 0 END) pending,
@@ -307,7 +309,8 @@ def dashboard_userwise():
                        ORDER BY j2.created_at DESC LIMIT 1) ip,
                       (SELECT j3.location FROM jobs j3 WHERE j3.username = j.username AND j3.location IS NOT NULL
                        ORDER BY j3.created_at DESC LIMIT 1) location
-               FROM jobs j GROUP BY j.username ORDER BY total DESC"""
+               FROM jobs j {where} GROUP BY j.username ORDER BY total DESC""",
+            params,
         ).fetchall()
     return [dict(r) for r in rows]
 
@@ -324,11 +327,17 @@ def login_record(username, ip, device, location, success):
         _conn.commit()
 
 
-def login_history_recent(limit=100):
+def login_history_recent(limit=100, since_ts=None):
     with _lock:
-        rows = _conn.execute(
-            "SELECT * FROM login_history ORDER BY timestamp DESC LIMIT ?", (limit,)
-        ).fetchall()
+        if since_ts:
+            rows = _conn.execute(
+                "SELECT * FROM login_history WHERE timestamp >= ? ORDER BY timestamp DESC LIMIT ?",
+                (since_ts, limit),
+            ).fetchall()
+        else:
+            rows = _conn.execute(
+                "SELECT * FROM login_history ORDER BY timestamp DESC LIMIT ?", (limit,)
+            ).fetchall()
     return [dict(r) for r in rows]
 
 
