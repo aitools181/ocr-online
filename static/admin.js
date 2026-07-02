@@ -26,6 +26,15 @@ function _cellDate(rowHtml, colIdx){
   return dd || null;
 }
 
+// Close any open multi-select filter dropdown when clicking outside
+document.addEventListener("click",(e)=>{
+  document.querySelectorAll("[data-msdd] .ms-panel:not([hidden])").forEach(panel=>{
+    if(!panel.closest("[data-msdd]").contains(e.target)){
+      panel.hidden=true;
+    }
+  });
+});
+
 // Version badge
 fetch("/api/version").then(r=>r.json()).then(d=>{
   const el=$("#versionBadge"); if(el) el.textContent=`v${d.version} · ${d.date}`;
@@ -795,22 +804,28 @@ function renderPaginatedTable(containerId, rowsHtmlArr, headerHtml, key, opts){
       return (tmp.textContent||"").toLowerCase().includes(q);
     });
   }
-  // Apply column filter (specific column contains value; date columns → same-day match)
-  if(st.colIdx!=="" && st.colVal){
+  // Apply column filter — multi-select (colVals), single value (colVal), or date
+  if(st.colIdx!==""){
     const ci=parseInt(st.colIdx);
-    const isDateVal = /^\d{4}-\d{2}-\d{2}$/.test(st.colVal);
-    if(isDateVal){
-      rows = rows.filter(r=>{
-        const dd=_cellDate(r,ci);          // prefer machine-readable data-date
-        if(dd) return dd===st.colVal;
-        const d=new Date(_cellText(r,ci));  // fallback to text parse
-        if(isNaN(d.getTime())) return false;
-        const iso=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-        return iso===st.colVal;
-      });
-    } else {
-      const q=st.colVal.toLowerCase();
-      rows = rows.filter(r=> _cellText(r,ci).includes(q));
+    if(st.colVals && st.colVals.length){
+      // Multi-select: match any selected value (exact, case-insensitive)
+      const set=new Set(st.colVals.map(v=>v.toLowerCase()));
+      rows = rows.filter(r=> set.has(_cellText(r,ci)));
+    } else if(st.colVal){
+      const isDateVal = /^\d{4}-\d{2}-\d{2}$/.test(st.colVal);
+      if(isDateVal){
+        rows = rows.filter(r=>{
+          const dd=_cellDate(r,ci);
+          if(dd) return dd===st.colVal;
+          const d=new Date(_cellText(r,ci));
+          if(isNaN(d.getTime())) return false;
+          const iso=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+          return iso===st.colVal;
+        });
+      } else {
+        const q=st.colVal.toLowerCase();
+        rows = rows.filter(r=> _cellText(r,ci).includes(q));
+      }
     }
   }
 
@@ -861,8 +876,23 @@ function renderPaginatedTable(containerId, rowsHtmlArr, headerHtml, key, opts){
         valControl=`<input type="date" data-tblcolval data-datefilter="1" value="${esc(st.colVal||"")}" class="tbl-colval" style="width:auto" />`;
       } else if(isFixed){
         distinct.sort();
-        const opts2=distinct.map(v=>`<option value="${esc(v)}" ${st.colVal===v?'selected':''}>${esc(v)}</option>`).join("");
-        valControl=`<select data-tblcolval class="tbl-colsel"><option value="">— All —</option>${opts2}</select>`;
+        const sel = st.colVals || [];
+        const label = sel.length===0 ? "— All —"
+          : sel.length===1 ? sel[0]
+          : `${sel.length} selected`;
+        const items = distinct.map(v=>{
+          const checked = sel.includes(v) ? "checked" : "";
+          return `<label class="ms-item"><input type="checkbox" value="${esc(v)}" ${checked}><span>${esc(v)}</span></label>`;
+        }).join("");
+        valControl=`<div class="ms-wrap" data-msdd>
+          <button type="button" class="ms-toggle" data-mstoggle>
+            <span class="ms-label">${esc(label)}</span><span class="ms-caret">▾</span>
+          </button>
+          <div class="ms-panel" hidden>
+            <div class="ms-search-wrap"><input type="text" class="ms-search" placeholder="🔍 Search…" data-mssearch></div>
+            <div class="ms-list" data-mslist>${items}</div>
+          </div>
+        </div>`;
       } else {
         valControl=`<input type="text" data-tblcolval placeholder="value…" value="${esc(st.colVal||"")}" class="tbl-colval" />`;
       }
@@ -875,7 +905,7 @@ function renderPaginatedTable(containerId, rowsHtmlArr, headerHtml, key, opts){
           <option value="">— Column —</option>${colOptions}
         </select>
         ${valControl}
-        <button data-tblclear class="tbl-clear" ${(st.search||st.colVal)?"":"disabled"}>✕ Clear Filter</button>
+        ${(st.search||st.colVal||(st.colVals&&st.colVals.length))?`<button data-tblclear class="tbl-clear">✕ Clear Filter</button>`:""}
       </span>
     </div>`;
   }
@@ -907,21 +937,50 @@ function renderPaginatedTable(containerId, rowsHtmlArr, headerHtml, key, opts){
       if(nf){ nf.focus(); nf.setSelectionRange(nf.value.length,nf.value.length); } };
   }
   const colSel=el.querySelector("[data-tblcol]");
-  if(colSel){ colSel.onchange=()=>{ st.colIdx=colSel.value; st.colVal=""; st.page=1; rerender(); }; }
+  if(colSel){ colSel.onchange=()=>{ st.colIdx=colSel.value; st.colVal=""; st.colVals=[]; st.page=1; rerender(); }; }
   const colValEl=el.querySelector("[data-tblcolval]");
   if(colValEl){
-    if(colValEl.tagName==="SELECT"){
-      colValEl.onchange=()=>{ st.colVal=colValEl.value; st.page=1; rerender(); };
-    } else if(colValEl.getAttribute("data-datefilter")==="1"){
+    if(colValEl.getAttribute("data-datefilter")==="1"){
       colValEl.onchange=()=>{ st.colVal=colValEl.value; st.page=1; rerender(); };
     } else {
       colValEl.oninput=()=>{ st.colVal=colValEl.value; st.page=1; rerender();
         const nf=document.getElementById(containerId).querySelector("[data-tblcolval]");
-        if(nf && nf.tagName!=="SELECT" && nf.type!=="date"){ nf.focus(); nf.setSelectionRange(nf.value.length,nf.value.length); } };
+        if(nf && nf.type!=="date"){ nf.focus(); nf.setSelectionRange(nf.value.length,nf.value.length); } };
     }
   }
+  // Multi-select dropdown wiring
+  const msWrap=el.querySelector("[data-msdd]");
+  if(msWrap){
+    const toggle=msWrap.querySelector("[data-mstoggle]");
+    const panel=msWrap.querySelector(".ms-panel");
+    const searchInp=msWrap.querySelector("[data-mssearch]");
+    const list=msWrap.querySelector("[data-mslist]");
+    // Keep panel open if it was open before rerender
+    if(st._msOpen){ panel.hidden=false; }
+    toggle.onclick=(e)=>{ e.stopPropagation(); panel.hidden=!panel.hidden; st._msOpen=!panel.hidden;
+      if(!panel.hidden && searchInp){ searchInp.focus(); } };
+    // prevent closing when clicking inside panel
+    panel.onclick=(e)=>e.stopPropagation();
+    if(searchInp){
+      searchInp.oninput=()=>{
+        const q=searchInp.value.toLowerCase();
+        list.querySelectorAll(".ms-item").forEach(it=>{
+          const txt=(it.textContent||"").toLowerCase();
+          it.style.display = txt.includes(q) ? "" : "none";
+        });
+      };
+    }
+    list.querySelectorAll("input[type=checkbox]").forEach(cb=>{
+      cb.onchange=()=>{
+        const vals=[...list.querySelectorAll("input:checked")].map(x=>x.value);
+        st.colVals=vals; st.colVal=""; st.page=1; st._msOpen=true; rerender();
+      };
+    });
+  } else {
+    st._msOpen=false;
+  }
   const clearBtn=el.querySelector("[data-tblclear]");
-  if(clearBtn){ clearBtn.onclick=()=>{ st.search=""; st.colIdx=""; st.colVal=""; st.page=1; rerender(); }; }
+  if(clearBtn){ clearBtn.onclick=()=>{ st.search=""; st.colVal=""; st.colVals=[]; st._msOpen=false; st.page=1; rerender(); }; }
   // Sort click handlers
   el.querySelectorAll("th[data-sortcol]").forEach(th=>{
     th.onclick=()=>{

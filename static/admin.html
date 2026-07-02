@@ -176,6 +176,27 @@
     font:inherit;font-size:12px;font-weight:600;cursor:pointer}
   .tbl-clear:hover:not(:disabled){background:#e74c3c;color:#fff}
   .tbl-clear:disabled{border-color:var(--line);color:#bbb;cursor:not-allowed;opacity:.7}
+  /* Multi-select filter dropdown */
+  .ms-wrap{position:relative;display:inline-block}
+  .ms-toggle{display:flex;align-items:center;gap:10px;min-width:150px;max-width:240px;
+    padding:8px 12px;border:1px solid var(--line);border-radius:9px;background:#fff;
+    font:inherit;font-size:13px;cursor:pointer;color:#333}
+  .ms-toggle:hover{border-color:var(--saffron)}
+  .ms-toggle .ms-label{flex:1;text-align:left;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .ms-toggle .ms-caret{color:var(--saffron2);font-size:11px}
+  .ms-panel{position:absolute;top:calc(100% + 4px);left:0;z-index:50;width:240px;
+    background:#fff;border:1px solid var(--line);border-radius:11px;
+    box-shadow:0 8px 28px rgba(0,0,0,.14);overflow:hidden}
+  .ms-search-wrap{padding:8px;border-bottom:1px solid var(--line);background:#faf7f1}
+  .ms-search{width:100%;box-sizing:border-box;padding:7px 10px;border:1px solid var(--line);
+    border-radius:8px;font:inherit;font-size:12.5px}
+  .ms-search:focus{outline:none;border-color:var(--saffron);box-shadow:0 0 0 3px rgba(214,131,21,.12)}
+  .ms-list{max-height:220px;overflow-y:auto;padding:4px}
+  .ms-item{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:8px;
+    cursor:pointer;font-size:13px;color:#333}
+  .ms-item:hover{background:#faf7f1}
+  .ms-item input[type=checkbox]{width:16px;height:16px;accent-color:var(--saffron);cursor:pointer;flex:0 0 auto}
+  .ms-item span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   /* Cloud Storage modal */
   .cloud-status{display:flex;align-items:center;gap:10px;background:#faf7f1;border-radius:10px;
     padding:10px 14px;font-size:13px}
