@@ -1714,7 +1714,7 @@ async def api_ping(request: Request):
         vid = db.new_session_id()
         resp.set_cookie(VISITOR_COOKIE, vid, max_age=30 * 86400, httponly=True, samesite="lax")
     try:
-        db.live_touch(vid, "ping", logged_in=bool(u))
+        db.live_touch(vid, "ping", logged_in=bool(u), username=(u.get("username") if u else None))
     except Exception:
         pass
     return resp
@@ -1732,7 +1732,8 @@ async def api_track_view(request: Request):
         vid = db.new_session_id()
         resp.set_cookie(VISITOR_COOKIE, vid, max_age=30 * 86400, httponly=True, samesite="lax")
     try:
-        db.page_view_record(vid, page, logged_in=bool(u), ip=_client_ip(request), count_view=True)
+        db.page_view_record(vid, page, logged_in=bool(u), ip=_client_ip(request),
+                             count_view=True, username=(u.get("username") if u else None))
     except Exception:
         pass
     return resp

@@ -83,6 +83,7 @@ def _init():
                 session_id  TEXT PRIMARY KEY,
                 page        TEXT,
                 logged_in   INTEGER NOT NULL DEFAULT 0,
+                username    TEXT,
                 last_seen   REAL NOT NULL
             );
 
@@ -158,6 +159,9 @@ def _migrate():
             _conn.execute("ALTER TABLE pending_users ADD COLUMN reject_reason TEXT")
         if "token_used" not in pcols:
             _conn.execute("ALTER TABLE pending_users ADD COLUMN token_used INTEGER NOT NULL DEFAULT 0")
+        lcols = {r[1] for r in _conn.execute("PRAGMA table_info(live_sessions)").fetchall()}
+        if "username" not in lcols:
+            _conn.execute("ALTER TABLE live_sessions ADD COLUMN username TEXT")
         _conn.commit()
 
 
@@ -350,7 +354,7 @@ def login_history_recent(limit=100, since_ts=None):
 
 # ------------------------------------------------------------------ PAGE VIEWS
 
-def page_view_record(session_id, page, logged_in, ip, count_view=True):
+def page_view_record(session_id, page, logged_in, ip, count_view=True, username=None):
     """count_view=True → records a page view (visit count). Always updates live presence.
     Refresh/ping ma count_view=False rakho jethi count na vadhe (point 10)."""
     now = time.time()
@@ -361,23 +365,25 @@ def page_view_record(session_id, page, logged_in, ip, count_view=True):
                 (session_id, page, 1 if logged_in else 0, ip, now),
             )
         _conn.execute(
-            """INSERT INTO live_sessions (session_id, page, logged_in, last_seen)
-               VALUES (?, ?, ?, ?)
-               ON CONFLICT(session_id) DO UPDATE SET page=?, logged_in=?, last_seen=?""",
-            (session_id, page, 1 if logged_in else 0, now, page, 1 if logged_in else 0, now),
+            """INSERT INTO live_sessions (session_id, page, logged_in, username, last_seen)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(session_id) DO UPDATE SET page=?, logged_in=?, username=?, last_seen=?""",
+            (session_id, page, 1 if logged_in else 0, username, now,
+             page, 1 if logged_in else 0, username, now),
         )
         _conn.commit()
 
 
-def live_touch(session_id, page, logged_in):
+def live_touch(session_id, page, logged_in, username=None):
     """Only update live presence (no view count) — for heartbeat ping."""
     now = time.time()
     with _lock:
         _conn.execute(
-            """INSERT INTO live_sessions (session_id, page, logged_in, last_seen)
-               VALUES (?, ?, ?, ?)
-               ON CONFLICT(session_id) DO UPDATE SET page=?, logged_in=?, last_seen=?""",
-            (session_id, page, 1 if logged_in else 0, now, page, 1 if logged_in else 0, now),
+            """INSERT INTO live_sessions (session_id, page, logged_in, username, last_seen)
+               VALUES (?, ?, ?, ?, ?)
+               ON CONFLICT(session_id) DO UPDATE SET page=?, logged_in=?, username=?, last_seen=?""",
+            (session_id, page, 1 if logged_in else 0, username, now,
+             page, 1 if logged_in else 0, username, now),
         )
         _conn.commit()
 
@@ -426,16 +432,15 @@ def session_get_cutoff(username):
     return cutoff
 
 
-def session_active_users(active_window_sec=120):
-    """Distinct logged-in usernames currently active (from live_sessions).
-    live_sessions doesn't store username, so we return count-based presence only.
-    Actual username list comes from recent login_history cross-referenced with live activity."""
+def session_active_users(active_window_sec=300):
+    """Usernames with a live session in the last active_window_sec (default 5 min)."""
     cutoff = time.time() - active_window_sec
     with _lock:
         rows = _conn.execute(
-            "SELECT DISTINCT username FROM login_history "
-            "WHERE success=1 AND timestamp >= ? ORDER BY username",
-            (time.time() - 86400,),  # logged in within last 24h as candidate pool
+            "SELECT DISTINCT username FROM live_sessions "
+            "WHERE logged_in=1 AND username IS NOT NULL AND username != '' AND last_seen >= ? "
+            "ORDER BY username",
+            (cutoff,),
         ).fetchall()
     return [r["username"] for r in rows if r["username"]]
 # ------------------------------------------------------ END SESSION INVALIDATION
