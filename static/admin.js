@@ -26,12 +26,11 @@ function _cellDate(rowHtml, colIdx){
   return dd || null;
 }
 
-// Close any open multi-select filter dropdown when clicking outside
+// Close any open filter dropdown (column or value) when clicking outside
 document.addEventListener("click",(e)=>{
-  document.querySelectorAll("[data-msdd] .ms-panel:not([hidden])").forEach(panel=>{
-    if(!panel.closest("[data-msdd]").contains(e.target)){
-      panel.hidden=true;
-    }
+  document.querySelectorAll("[data-msdd] .ms-panel:not([hidden]), [data-coldd] .ms-panel:not([hidden])").forEach(panel=>{
+    const wrap=panel.closest("[data-msdd],[data-coldd]");
+    if(wrap && !wrap.contains(e.target)){ panel.hidden=true; }
   });
 });
 
@@ -857,9 +856,25 @@ function renderPaginatedTable(containerId, rowsHtmlArr, headerHtml, key, opts){
   // Controls bar: global search + column filter (skip if noFilter)
   let controls="";
   if(!opts.noFilter){
-    const colOptions = colNames.map((n,i)=> noSortSet.includes(i) ? "" :
-      `<option value="${i}" ${String(st.colIdx)===String(i)?'selected':''}>${esc(n)}</option>`).join("");
-    // Value control: date column → date picker; fixed-value → dropdown; else text box
+    // Column selector — searchable single-select dropdown (saffron UI)
+    const selColName = st.colIdx==="" ? "— Column —" : (colNames[parseInt(st.colIdx)]||"— Column —");
+    const colItems = colNames.map((n,i)=> noSortSet.includes(i) ? "" :
+      `<label class="ms-item ms-item-single" data-colpick="${i}">
+         <span>${esc(n)}</span>${String(st.colIdx)===String(i)?'<span class="ms-check">✓</span>':''}
+       </label>`).join("");
+    const colDropdown=`<div class="ms-wrap" data-coldd>
+      <button type="button" class="ms-toggle ms-col-toggle" data-coltoggle>
+        <span class="ms-label ${st.colIdx===""?"ms-placeholder":""}">${esc(selColName)}</span><span class="ms-caret">▾</span>
+      </button>
+      <div class="ms-panel" hidden>
+        <div class="ms-search-wrap"><input type="text" class="ms-search" placeholder="🔍 Search column…" data-colsearch></div>
+        <div class="ms-list" data-collist>
+          <label class="ms-item ms-item-single" data-colpick=""><span>— Column —</span>${st.colIdx===""?'<span class="ms-check">✓</span>':''}</label>
+          ${colItems}
+        </div>
+      </div>
+    </div>`;
+    // Value control: date column → date picker; fixed-value → multi-select; else text box
     let valControl;
     if(st.colIdx===""){
       valControl=`<input type="text" data-tblcolval placeholder="value…" class="tbl-colval" disabled />`;
@@ -877,16 +892,21 @@ function renderPaginatedTable(containerId, rowsHtmlArr, headerHtml, key, opts){
       } else if(isFixed){
         distinct.sort();
         const sel = st.colVals || [];
-        const label = sel.length===0 ? "— All —"
-          : sel.length===1 ? sel[0]
-          : `${sel.length} selected`;
+        let labelHtml;
+        if(sel.length===0){
+          labelHtml=`<span class="ms-placeholder">— All —</span>`;
+        } else {
+          const shown = sel.slice(0,4).map(v=>`<span class="ms-tag">${esc(v)}</span>`).join("");
+          const more = sel.length>4 ? `<span class="ms-tag ms-more">+${sel.length-4} more</span>` : "";
+          labelHtml = shown + more;
+        }
         const items = distinct.map(v=>{
           const checked = sel.includes(v) ? "checked" : "";
           return `<label class="ms-item"><input type="checkbox" value="${esc(v)}" ${checked}><span>${esc(v)}</span></label>`;
         }).join("");
         valControl=`<div class="ms-wrap" data-msdd>
-          <button type="button" class="ms-toggle" data-mstoggle>
-            <span class="ms-label">${esc(label)}</span><span class="ms-caret">▾</span>
+          <button type="button" class="ms-toggle ms-toggle-tags" data-mstoggle>
+            <span class="ms-label">${labelHtml}</span><span class="ms-caret">▾</span>
           </button>
           <div class="ms-panel" hidden>
             <div class="ms-search-wrap"><input type="text" class="ms-search" placeholder="🔍 Search…" data-mssearch></div>
@@ -901,9 +921,7 @@ function renderPaginatedTable(containerId, rowsHtmlArr, headerHtml, key, opts){
       <input type="text" data-tblsearch placeholder="🔍 Search all…" value="${esc(st.search||"")}" class="tbl-search" />
       <span class="tbl-filter-group">
         <span class="muted" style="font-size:12px">Filter:</span>
-        <select data-tblcol class="tbl-colsel">
-          <option value="">— Column —</option>${colOptions}
-        </select>
+        ${colDropdown}
         ${valControl}
         ${(st.search||st.colVal||(st.colVals&&st.colVals.length))?`<button data-tblclear class="tbl-clear">✕ Clear Filter</button>`:""}
       </span>
@@ -936,8 +954,30 @@ function renderPaginatedTable(containerId, rowsHtmlArr, headerHtml, key, opts){
       const nf=document.getElementById(containerId).querySelector("[data-tblsearch]");
       if(nf){ nf.focus(); nf.setSelectionRange(nf.value.length,nf.value.length); } };
   }
-  const colSel=el.querySelector("[data-tblcol]");
-  if(colSel){ colSel.onchange=()=>{ st.colIdx=colSel.value; st.colVal=""; st.colVals=[]; st.page=1; rerender(); }; }
+  // Column dropdown (searchable single-select)
+  const colWrap=el.querySelector("[data-coldd]");
+  if(colWrap){
+    const cToggle=colWrap.querySelector("[data-coltoggle]");
+    const cPanel=colWrap.querySelector(".ms-panel");
+    const cSearch=colWrap.querySelector("[data-colsearch]");
+    const cList=colWrap.querySelector("[data-collist]");
+    if(st._colOpen){ cPanel.hidden=false; }
+    cToggle.onclick=(e)=>{ e.stopPropagation(); cPanel.hidden=!cPanel.hidden; st._colOpen=!cPanel.hidden;
+      if(!cPanel.hidden && cSearch){ cSearch.focus(); } };
+    cPanel.onclick=(e)=>e.stopPropagation();
+    if(cSearch){
+      cSearch.oninput=()=>{
+        const q=cSearch.value.toLowerCase();
+        cList.querySelectorAll(".ms-item").forEach(it=>{
+          it.style.display=(it.textContent||"").toLowerCase().includes(q)?"":"none";
+        });
+      };
+    }
+    cList.querySelectorAll("[data-colpick]").forEach(it=>{
+      it.onclick=()=>{ st.colIdx=it.getAttribute("data-colpick"); st.colVal=""; st.colVals=[];
+        st._colOpen=false; st.page=1; rerender(); };
+    });
+  }
   const colValEl=el.querySelector("[data-tblcolval]");
   if(colValEl){
     if(colValEl.getAttribute("data-datefilter")==="1"){

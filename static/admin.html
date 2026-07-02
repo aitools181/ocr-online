@@ -8,6 +8,11 @@
 <link rel="icon" type="image/png" href="/static/logo-white.png" />
 <link rel="stylesheet" href="/static/style.css" />
 <style>
+  /* Global saffron focus for all inputs on the admin page (overrides browser blue) */
+  input,select,textarea{ accent-color:var(--saffron); }
+  input:focus,select:focus,textarea:focus{
+    outline:none;border-color:var(--saffron)!important;box-shadow:0 0 0 3px rgba(224,138,42,.15);
+  }
   .admin-wrap{max-width:1000px;margin:24px auto;padding:0 18px}
   .admin-head{display:flex;align-items:center;gap:14px;margin-bottom:18px}
   .admin-head img{width:46px;height:46px;border-radius:11px;background:#fff;padding:5px;object-fit:contain;box-shadow:0 6px 18px rgba(0,0,0,.18)}
@@ -118,9 +123,15 @@
   .srno{color:var(--muted);font-size:11.5px}
 
   #dashCard .bar-actions input,#dashCard .bar-actions select{
-    padding:9px 12px;border:1px solid var(--line);border-radius:9px;font:inherit;font-size:13px;
+    padding:9px 12px;border:1px solid var(--line);border-radius:9px;font:inherit;font-size:13px;background:#fff;
+  }
+  #dashCard .bar-actions input:focus,#dashCard .bar-actions select:focus{
+    outline:none;border-color:var(--saffron);box-shadow:0 0 0 3px rgba(214,131,21,.12);
   }
   #dashCard .bar-actions input{flex:1;min-width:160px}
+  .btn-ghost{padding:9px 18px;border:1.5px solid var(--saffron);background:#fff;color:var(--saffron2);
+    border-radius:9px;font:inherit;font-size:13px;font-weight:600;cursor:pointer;transition:.15s;white-space:nowrap}
+  .btn-ghost:hover{background:var(--saffron);color:#fff}
   #dashCard table{border-radius:10px;overflow:hidden}
   #dashCard thead th{background:#faf7f1}
   .tbl-center th,.tbl-center td{text-align:center !important}
@@ -197,6 +208,17 @@
   .ms-item:hover{background:#faf7f1}
   .ms-item input[type=checkbox]{width:16px;height:16px;accent-color:var(--saffron);cursor:pointer;flex:0 0 auto}
   .ms-item span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  /* Toggle showing tags */
+  .ms-toggle-tags{flex-wrap:wrap;gap:5px;min-height:38px;height:auto;align-items:center;padding:5px 10px}
+  .ms-toggle-tags .ms-label{display:flex;flex-wrap:wrap;gap:5px;white-space:normal;overflow:visible}
+  .ms-tag{display:inline-flex;align-items:center;background:var(--saffron);color:#fff;
+    font-size:11.5px;font-weight:600;padding:3px 9px;border-radius:20px;white-space:nowrap}
+  .ms-tag.ms-more{background:#f0e6d4;color:var(--saffron2)}
+  .ms-placeholder{color:#999}
+  /* Single-select column dropdown items */
+  .ms-item-single{justify-content:space-between}
+  .ms-col-toggle{min-width:140px}
+  .ms-check{color:var(--saffron2);font-weight:700}
   /* Cloud Storage modal */
   .cloud-status{display:flex;align-items:center;gap:10px;background:#faf7f1;border-radius:10px;
     padding:10px 14px;font-size:13px}
