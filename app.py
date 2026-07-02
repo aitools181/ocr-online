@@ -61,8 +61,8 @@ ADMIN_PASSWORD = str(_CFG.get("admin_password") or os.environ.get("ADMIN_PASSWOR
 MAX_FILES = int(_CFG.get("max_files", 50))
 ACTIVE_JOBS = set()        # atyare process thati jobs - cleanup aane skip kare
 
-APP_VERSION = "3.0"
-APP_DATE    = "01-07-2026"
+APP_VERSION = "4.0"
+APP_DATE    = "02-07-2026"
 
 storage.configure(storage.load_runtime_config(JOBS) or _CFG.get("storage", {}))
 storage.start_retry_worker(db, JOBS)

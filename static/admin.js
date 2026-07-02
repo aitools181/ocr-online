@@ -9,6 +9,22 @@ function toast(msg, type="ok"){
 }
 function fmtSize(b){ if(b<1024)return b+" B"; if(b<1048576)return (b/1024).toFixed(1)+" KB"; return (b/1048576).toFixed(1)+" MB"; }
 function fmtDate(iso){ try{ return new Date(iso).toLocaleString(); }catch{ return iso; } }
+// Date cell with machine-readable data-date (YYYY-MM-DD) for reliable filtering/sorting
+function dateCell(tsSeconds, extraClass){
+  if(!tsSeconds) return `<td class="${extraClass||'muted'}">—</td>`;
+  const d=new Date(tsSeconds*1000);
+  const iso=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  return `<td class="${extraClass||'muted'}" data-date="${iso}">${esc(d.toLocaleString())}</td>`;
+}
+// Get a cell's date value: prefer data-date attribute, else parse text
+function _cellDate(rowHtml, colIdx){
+  const tmp=document.createElement("tr");
+  tmp.innerHTML=rowHtml.replace(/^<tr[^>]*>/,"").replace(/<\/tr>\s*$/,"");
+  const tds=tmp.querySelectorAll("td");
+  if(colIdx>=tds.length) return null;
+  const dd=tds[colIdx].getAttribute("data-date");
+  return dd || null;
+}
 
 // Version badge
 fetch("/api/version").then(r=>r.json()).then(d=>{
@@ -381,7 +397,7 @@ async function loadDashLogins(range){
        <td class="muted" style="max-width:200px">${esc((l.device||"").slice(0,60))}</td>
        <td>${esc(l.location||"—")}</td>
        <td>${l.success?'<span class="status-pill status-completed">success</span>':'<span class="status-pill status-error">failed</span>'}</td>
-       <td class="muted">${fmtDate(new Date(l.timestamp*1000).toISOString())}</td></tr>`);
+       ${dateCell(l.timestamp)}</tr>`);
     const header=`<tr><th>User</th><th>IP</th><th>Device</th><th>Location</th><th>Status</th><th>Time</th></tr>`;
     renderPaginatedTable("dashLogins", rows, header, "logins", {defaultSize:10, emptyMsg:"No login history yet."});
   }catch{ $("#dashLogins").innerHTML = `<div class="empty">Could not load.</div>`; }
@@ -401,7 +417,7 @@ async function loadDashJobs(){
        <td>${esc(j.username)}</td><td>${statusPill(j.status)}</td>
        <td>${j.pages||0}</td><td>${j.duration_sec?fmtSecD(j.duration_sec):"—"}</td>
        <td class="muted">${esc(j.cloud_provider||"—")}</td>
-       <td class="muted">${fmtDate(new Date(j.created_at*1000).toISOString())}</td></tr>`);
+       ${dateCell(j.created_at)}</tr>`);
     const header=`<tr><th>File</th><th>User</th><th>Status</th><th>Pages</th><th>Duration</th><th>Cloud</th><th>Created</th></tr>`;
     renderPaginatedTable("dashJobs", rows, header, "jobsearch", {defaultSize:10, emptyMsg:"No matching jobs."});
   }catch{ $("#dashJobs").innerHTML = `<div class="empty">Could not load.</div>`; }
@@ -662,7 +678,7 @@ async function loadFeedback(){
         <td style="max-width:220px">${esc(f.message.slice(0,80))}${f.message.length>80?'…':''}</td>
         <td style="color:#e8a020;white-space:nowrap">${stars}</td>
         <td>${statusPill}</td>
-        <td class="muted" style="white-space:nowrap">${fmtDate(new Date(f.created_at*1000).toISOString())}</td>
+        ${dateCell(f.created_at,"muted")}
         <td style="white-space:nowrap"><button class="mini-reset" data-fb-view="${f.id}">View</button>${actionBtn}</td>
       </tr>`;
     });
@@ -779,15 +795,33 @@ function renderPaginatedTable(containerId, rowsHtmlArr, headerHtml, key, opts){
       return (tmp.textContent||"").toLowerCase().includes(q);
     });
   }
-  // Apply column filter (specific column contains value)
+  // Apply column filter (specific column contains value; date columns → same-day match)
   if(st.colIdx!=="" && st.colVal){
-    const ci=parseInt(st.colIdx); const q=st.colVal.toLowerCase();
-    rows = rows.filter(r=> _cellText(r,ci).includes(q));
+    const ci=parseInt(st.colIdx);
+    const isDateVal = /^\d{4}-\d{2}-\d{2}$/.test(st.colVal);
+    if(isDateVal){
+      rows = rows.filter(r=>{
+        const dd=_cellDate(r,ci);          // prefer machine-readable data-date
+        if(dd) return dd===st.colVal;
+        const d=new Date(_cellText(r,ci));  // fallback to text parse
+        if(isNaN(d.getTime())) return false;
+        const iso=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+        return iso===st.colVal;
+      });
+    } else {
+      const q=st.colVal.toLowerCase();
+      rows = rows.filter(r=> _cellText(r,ci).includes(q));
+    }
   }
 
   // Apply sort if a column is selected
   if(st.sortCol!=null){
     rows.sort((a,b)=>{
+      // Date columns → chronological sort via data-date
+      const ad=_cellDate(a,st.sortCol), bd=_cellDate(b,st.sortCol);
+      if(ad!==null || bd!==null){
+        return ((ad||"").localeCompare(bd||""))*st.sortDir;
+      }
       const av=_cellText(a,st.sortCol), bv=_cellText(b,st.sortCol);
       const an=parseFloat(av.replace(/[^0-9.\-]/g,"")), bn=parseFloat(bv.replace(/[^0-9.\-]/g,""));
       const bothNum = !isNaN(an) && !isNaN(bn) && av.match(/[0-9]/) && bv.match(/[0-9]/);
@@ -810,6 +844,29 @@ function renderPaginatedTable(containerId, rowsHtmlArr, headerHtml, key, opts){
   if(!opts.noFilter){
     const colOptions = colNames.map((n,i)=> noSortSet.includes(i) ? "" :
       `<option value="${i}" ${String(st.colIdx)===String(i)?'selected':''}>${esc(n)}</option>`).join("");
+    // Value control: date column → date picker; fixed-value → dropdown; else text box
+    let valControl;
+    if(st.colIdx===""){
+      valControl=`<input type="text" data-tblcolval placeholder="value…" class="tbl-colval" disabled />`;
+    } else {
+      const ci=parseInt(st.colIdx);
+      const cellVals=rowsHtmlArr.map(r=>_cellText(r,ci)).filter(v=>v!=="");
+      const distinct=[...new Set(cellVals)];
+      // Date column detection: any row has data-date attribute for this column, OR most cells parse as dates
+      const hasDataDate = rowsHtmlArr.some(r=>_cellDate(r,ci)!==null);
+      const dateParsed=cellVals.filter(v=>!isNaN(Date.parse(v))).length;
+      const isDate = hasDataDate || (cellVals.length>0 && dateParsed >= Math.ceil(cellVals.length*0.7));
+      const isFixed = !isDate && distinct.length>0 && distinct.length<=15;
+      if(isDate){
+        valControl=`<input type="date" data-tblcolval data-datefilter="1" value="${esc(st.colVal||"")}" class="tbl-colval" style="width:auto" />`;
+      } else if(isFixed){
+        distinct.sort();
+        const opts2=distinct.map(v=>`<option value="${esc(v)}" ${st.colVal===v?'selected':''}>${esc(v)}</option>`).join("");
+        valControl=`<select data-tblcolval class="tbl-colsel"><option value="">— All —</option>${opts2}</select>`;
+      } else {
+        valControl=`<input type="text" data-tblcolval placeholder="value…" value="${esc(st.colVal||"")}" class="tbl-colval" />`;
+      }
+    }
     controls=`<div class="tbl-controls">
       <input type="text" data-tblsearch placeholder="🔍 Search all…" value="${esc(st.search||"")}" class="tbl-search" />
       <span class="tbl-filter-group">
@@ -817,9 +874,8 @@ function renderPaginatedTable(containerId, rowsHtmlArr, headerHtml, key, opts){
         <select data-tblcol class="tbl-colsel">
           <option value="">— Column —</option>${colOptions}
         </select>
-        <input type="text" data-tblcolval placeholder="value…" value="${esc(st.colVal||"")}" class="tbl-colval"
-          ${st.colIdx===""?"disabled":""} />
-        ${(st.search||st.colVal)?`<button data-tblclear class="tbl-clear">✕ Clear</button>`:""}
+        ${valControl}
+        <button data-tblclear class="tbl-clear" ${(st.search||st.colVal)?"":"disabled"}>✕ Clear Filter</button>
       </span>
     </div>`;
   }
@@ -854,9 +910,15 @@ function renderPaginatedTable(containerId, rowsHtmlArr, headerHtml, key, opts){
   if(colSel){ colSel.onchange=()=>{ st.colIdx=colSel.value; st.colVal=""; st.page=1; rerender(); }; }
   const colValEl=el.querySelector("[data-tblcolval]");
   if(colValEl){
-    colValEl.oninput=()=>{ st.colVal=colValEl.value; st.page=1; rerender();
-      const nf=document.getElementById(containerId).querySelector("[data-tblcolval]");
-      if(nf){ nf.focus(); nf.setSelectionRange(nf.value.length,nf.value.length); } };
+    if(colValEl.tagName==="SELECT"){
+      colValEl.onchange=()=>{ st.colVal=colValEl.value; st.page=1; rerender(); };
+    } else if(colValEl.getAttribute("data-datefilter")==="1"){
+      colValEl.onchange=()=>{ st.colVal=colValEl.value; st.page=1; rerender(); };
+    } else {
+      colValEl.oninput=()=>{ st.colVal=colValEl.value; st.page=1; rerender();
+        const nf=document.getElementById(containerId).querySelector("[data-tblcolval]");
+        if(nf && nf.tagName!=="SELECT" && nf.type!=="date"){ nf.focus(); nf.setSelectionRange(nf.value.length,nf.value.length); } };
+    }
   }
   const clearBtn=el.querySelector("[data-tblclear]");
   if(clearBtn){ clearBtn.onclick=()=>{ st.search=""; st.colIdx=""; st.colVal=""; st.page=1; rerender(); }; }
